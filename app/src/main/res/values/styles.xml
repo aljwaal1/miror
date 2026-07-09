@@ -1,0 +1,11 @@
+<resources>
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/mirror_primary</item>
+        <item name="colorPrimaryDark">@color/mirror_primary_dark</item>
+        <item name="colorAccent">@color/mirror_accent</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/mirror_background</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
