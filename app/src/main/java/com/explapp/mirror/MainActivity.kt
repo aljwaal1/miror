@@ -4,16 +4,28 @@ import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.explapp.mirror.core.DeviceManager
+import com.explapp.mirror.core.NetworkScanner
+import com.explapp.mirror.model.CastDevice
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
+    private val deviceManager = DeviceManager()
+    private lateinit var scanner: NetworkScanner
+    private lateinit var status: TextView
+    private lateinit var list: LinearLayout
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        scanner = NetworkScanner(this)
         setContentView(createMainView())
     }
 
-    private fun createMainView(): LinearLayout {
+    private fun createMainView(): ScrollView {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -40,22 +52,63 @@ class MainActivity : AppCompatActivity() {
             text = "بحث عن الأجهزة"
         }
 
-        val status = TextView(this).apply {
+        status = TextView(this).apply {
             text = "الحالة: جاهز للبحث"
             textSize = 15f
             setTextColor(0xFF5EEAD4.toInt())
             gravity = Gravity.CENTER
-            setPadding(0, 24, 0, 0)
+            setPadding(0, 24, 0, 18)
+        }
+
+        list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
 
         scanButton.setOnClickListener {
-            status.text = "جاري تجهيز طبقة اكتشاف الأجهزة..."
+            startScan()
         }
 
         root.addView(title)
         root.addView(subtitle)
         root.addView(scanButton)
         root.addView(status)
-        return root
+        root.addView(list)
+
+        return ScrollView(this).apply { addView(root) }
+    }
+
+    private fun startScan() {
+        status.text = "جاري فحص الشبكة المحلية..."
+        list.removeAllViews()
+        lifecycleScope.launch {
+            val devices = scanner.scanLocalNetwork()
+            deviceManager.clear()
+            deviceManager.addDevices(devices)
+            renderDevices(deviceManager.getDevices())
+        }
+    }
+
+    private fun renderDevices(devices: List<CastDevice>) {
+        list.removeAllViews()
+        status.text = if (devices.isEmpty()) {
+            "لم يتم العثور على أجهزة. تأكد أن الهاتف والشاشة على نفس الشبكة."
+        } else {
+            "تم العثور على ${devices.size} جهاز"
+        }
+
+        devices.forEach { device ->
+            val item = TextView(this).apply {
+                text = "${device.name}\nIP: ${device.ipAddress}\nالنوع: ${device.displayType}\nالخدمات: ${device.services.joinToString()}"
+                textSize = 15f
+                setTextColor(0xFFF8FAFC.toInt())
+                setBackgroundColor(0xFF172033.toInt())
+                setPadding(24, 20, 24, 20)
+            }
+            val params = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, 16) }
+            list.addView(item, params)
+        }
     }
 }
