@@ -12,15 +12,31 @@ import kotlinx.coroutines.withContext
 import java.net.InetAddress
 
 class NetworkScanner(private val context: Context) {
+    private val ssdpScanner = SsdpScanner()
 
     suspend fun scanLocalNetwork(): List<CastDevice> = withContext(Dispatchers.IO) {
+        val discovered = linkedMapOf<String, CastDevice>()
+
+        ssdpScanner.scan().forEach { device ->
+            discovered[device.ipAddress] = device
+        }
+
+        scanByPing().forEach { device ->
+            val current = discovered[device.ipAddress]
+            discovered[device.ipAddress] = current ?: device
+        }
+
+        discovered.values.sortedWith(compareBy<CastDevice> { it.type == DeviceType.UNKNOWN }.thenBy { it.ipAddress })
+    }
+
+    private suspend fun scanByPing(): List<CastDevice> = withContext(Dispatchers.IO) {
         val prefix = getWifiPrefix() ?: return@withContext emptyList()
         coroutineScope {
             (1..254).map { last ->
                 async {
                     val ip = "$prefix.$last"
                     val reachable = runCatching {
-                        InetAddress.getByName(ip).isReachable(350)
+                        InetAddress.getByName(ip).isReachable(320)
                     }.getOrDefault(false)
 
                     if (reachable) {
