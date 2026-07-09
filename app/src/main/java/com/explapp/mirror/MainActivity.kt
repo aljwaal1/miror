@@ -8,6 +8,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.explapp.mirror.core.ConnectionTester
 import com.explapp.mirror.core.DeviceManager
 import com.explapp.mirror.core.NetworkScanner
 import com.explapp.mirror.model.CastDevice
@@ -15,6 +16,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
     private val deviceManager = DeviceManager()
+    private val connectionTester = ConnectionTester()
     private lateinit var scanner: NetworkScanner
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
@@ -64,16 +66,13 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
         }
 
-        scanButton.setOnClickListener {
-            startScan()
-        }
+        scanButton.setOnClickListener { startScan() }
 
         root.addView(title)
         root.addView(subtitle)
         root.addView(scanButton)
         root.addView(status)
         root.addView(list)
-
         return ScrollView(this).apply { addView(root) }
     }
 
@@ -97,18 +96,39 @@ class MainActivity : AppCompatActivity() {
         }
 
         devices.forEach { device ->
+            val container = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundColor(0xFF172033.toInt())
+                setPadding(24, 20, 24, 20)
+            }
+
             val item = TextView(this).apply {
                 text = "${device.name}\nIP: ${device.ipAddress}\nالنوع: ${device.displayType}\nالخدمات: ${device.services.joinToString()}"
                 textSize = 15f
                 setTextColor(0xFFF8FAFC.toInt())
-                setBackgroundColor(0xFF172033.toInt())
-                setPadding(24, 20, 24, 20)
             }
+
+            val testButton = Button(this).apply {
+                text = "اختبار الاتصال"
+                setOnClickListener { testDevice(device) }
+            }
+
+            container.addView(item)
+            container.addView(testButton)
+
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { setMargins(0, 0, 0, 16) }
-            list.addView(item, params)
+            list.addView(container, params)
+        }
+    }
+
+    private fun testDevice(device: CastDevice) {
+        status.text = "جاري اختبار الاتصال مع ${device.ipAddress}..."
+        lifecycleScope.launch {
+            val result = connectionTester.test(device)
+            status.text = result.arabicSummary
         }
     }
 }
