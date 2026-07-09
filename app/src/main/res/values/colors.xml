@@ -1,0 +1,8 @@
+<resources>
+    <color name="mirror_primary">#18B8A6</color>
+    <color name="mirror_primary_dark">#0F766E</color>
+    <color name="mirror_accent">#60A5FA</color>
+    <color name="mirror_background">#0F172A</color>
+    <color name="mirror_surface">#172033</color>
+    <color name="mirror_text">#F8FAFC</color>
+</resources>
