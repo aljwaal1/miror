@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 class MediaSender(private val context: Context) {
     private val localMediaServer = LocalMediaServer(context.applicationContext)
     private val dlnaController = DlnaController()
+    private var lastResult: MediaSendResult? = null
 
     suspend fun prepareSend(device: CastDevice, mediaUri: Uri): MediaSendResult = withContext(Dispatchers.IO) {
         val rawMimeType = context.contentResolver.getType(mediaUri).orEmpty()
@@ -63,7 +64,7 @@ class MediaSender(private val context: Context) {
             MediaRoute.UNKNOWN -> "لم يتم تحديد بروتوكول مناسب لهذا الجهاز بعد."
         }
 
-        MediaSendResult(
+        val result = MediaSendResult(
             deviceIp = device.ipAddress,
             mediaUri = mediaUri.toString(),
             mimeType = mimeType,
@@ -72,9 +73,13 @@ class MediaSender(private val context: Context) {
             localUrl = localServerResult?.url,
             dlnaAttempted = dlnaResult != null,
             dlnaSuccess = dlnaResult?.success == true,
+            dlnaHttpCode = dlnaResult?.httpCode,
+            dlnaResponsePreview = dlnaResult?.responseBody.orEmpty().take(300),
             isReadyForNextStep = localServerResult != null,
             arabicMessage = message
         )
+        lastResult = result
+        result
     }
 
     suspend fun pause(device: CastDevice): String = dlnaController.pause(device).message
@@ -89,6 +94,25 @@ class MediaSender(private val context: Context) {
 
     fun stopLocalServer() {
         localMediaServer.stop()
+    }
+
+    fun diagnosticsSummary(): String {
+        val server = localMediaServer.diagnosticsSnapshot()
+        val result = lastResult
+        return buildString {
+            append("تشخيص الإرسال\n")
+            if (result == null) {
+                append("لا توجد محاولة إرسال بعد.\n")
+            } else {
+                append("المسار: ${result.route.arabicName}\n")
+                append("DLNA: ${if (result.dlnaAttempted) "تمت المحاولة" else "لم تتم"}\n")
+                append("نجاح DLNA: ${if (result.dlnaSuccess) "نعم" else "لا"}\n")
+                if (result.dlnaHttpCode != null) append("HTTP DLNA: ${result.dlnaHttpCode}\n")
+                if (result.localUrl != null) append("الرابط المحلي: ${result.localUrl}\n")
+            }
+            append("\n")
+            append(server.arabicSummary)
+        }
     }
 
     private fun chooseRoute(device: CastDevice): MediaRoute {
@@ -126,6 +150,8 @@ data class MediaSendResult(
     val localUrl: String?,
     val dlnaAttempted: Boolean,
     val dlnaSuccess: Boolean,
+    val dlnaHttpCode: Int?,
+    val dlnaResponsePreview: String,
     val isReadyForNextStep: Boolean,
     val arabicMessage: String
 ) {
@@ -137,6 +163,7 @@ data class MediaSendResult(
             append("المسار المختار: ${route.arabicName}\n")
             if (!localUrl.isNullOrBlank()) append("الرابط المحلي: $localUrl\n")
             if (dlnaAttempted) append("محاولة DLNA: ${if (dlnaSuccess) "نجحت" else "لم تكتمل"}\n")
+            if (dlnaHttpCode != null) append("HTTP DLNA: $dlnaHttpCode\n")
             append(arabicMessage)
         }
 }
