@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.explapp.mirror.core.ConnectionTester
@@ -37,13 +38,8 @@ class MainActivity : AppCompatActivity() {
     private var queueIndex = -1
     private var currentVolume = 30
 
-    private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        addToQueue(uris)
-    }
-
-    private val videoPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        addToQueue(uris)
-    }
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addToQueue(it) }
+    private val videoPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addToQueue(it) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -66,116 +62,74 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(0xFF0F172A.toInt())
         }
 
-        root.addView(TextView(this).apply {
-            text = "ExplApp Mirror"
-            textSize = 28f
-            setTextColor(0xFFF8FAFC.toInt())
-            gravity = Gravity.CENTER
-        })
-
-        root.addView(TextView(this).apply {
-            text = "تطبيق مزيج: DLNA للصور والفيديو + AnyView / مرآة الشاشة"
-            textSize = 16f
-            setTextColor(0xFFCBD5E1.toInt())
-            gravity = Gravity.CENTER
+        root.addView(textView("ExplApp Mirror", 28f, 0xFFF8FAFC.toInt(), Gravity.CENTER))
+        root.addView(textView("DLNA للوسائط + AnyView / مرآة الشاشة", 16f, 0xFFCBD5E1.toInt(), Gravity.CENTER).apply {
             setPadding(0, 12, 0, 20)
         })
 
-        val modeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-        }
-        modeRow.addView(Button(this).apply {
-            text = "1) بحث DLNA عن الرسيفرات والشاشات"
+        root.addView(Button(this).apply {
+            text = "1) بحث DLNA عن الأجهزة"
             setOnClickListener { startScan() }
         })
-        modeRow.addView(Button(this).apply {
+        root.addView(Button(this).apply {
             text = "2) فتح مرآة الشاشة / AnyView"
             setOnClickListener { openScreenMirroring() }
         })
-        modeRow.addView(Button(this).apply {
+        root.addView(Button(this).apply {
             text = "3) فتح Wi‑Fi Direct"
             setOnClickListener { openWifiDirect() }
         })
-        mirroringInfoView = TextView(this).apply {
-            text = mirroringLauncher.availabilitySummary()
-            textSize = 13f
-            setTextColor(0xFFFDE68A.toInt())
-            gravity = Gravity.CENTER
+
+        mirroringInfoView = textView(mirroringLauncher.availabilitySummary(), 13f, 0xFFFDE68A.toInt(), Gravity.CENTER).apply {
             setPadding(8, 8, 8, 12)
         }
-        modeRow.addView(mirroringInfoView)
-        root.addView(modeRow)
-
-        selectedDeviceView = TextView(this).apply {
-            text = "الجهاز المحدد: لا يوجد"
-            textSize = 14f
-            setTextColor(0xFF93C5FD.toInt())
+        selectedDeviceView = textView("الجهاز المحدد: لا يوجد", 14f, 0xFF93C5FD.toInt()).apply {
             setPadding(0, 16, 0, 6)
         }
-
-        queueView = TextView(this).apply {
-            text = "قائمة التشغيل: فارغة"
-            textSize = 14f
-            setTextColor(0xFFCBD5E1.toInt())
+        queueView = textView("قائمة التشغيل: فارغة", 14f, 0xFFCBD5E1.toInt()).apply {
             setPadding(0, 8, 0, 8)
         }
 
-        val row1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        row1.addView(controlButton("السابق") { playPrevious() })
-        row1.addView(controlButton("تشغيل") { playCurrent() })
-        row1.addView(controlButton("التالي") { playNext() })
-
-        val row2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        row2.addView(controlButton("إيقاف مؤقت") { pausePlayback() })
-        row2.addView(controlButton("استئناف") { resumePlayback() })
-        row2.addView(controlButton("إيقاف") { stopPlayback() })
-        row2.addView(controlButton("مسح القائمة") { clearQueue() })
+        root.addView(mirroringInfoView)
+        root.addView(selectedDeviceView)
+        root.addView(queueView)
+        root.addView(horizontalRow(
+            controlButton("السابق") { playPrevious() },
+            controlButton("تشغيل") { playCurrent() },
+            controlButton("التالي") { playNext() }
+        ))
+        root.addView(horizontalRow(
+            controlButton("إيقاف مؤقت") { pausePlayback() },
+            controlButton("استئناف") { resumePlayback() },
+            controlButton("إيقاف") { stopPlayback() }
+        ))
+        root.addView(horizontalRow(
+            controlButton("مسح القائمة") { clearQueue() },
+            controlButton("معلومات التوافق") { showSelectedCompatibility() },
+            controlButton("إعادة ضبط التوافق") { resetSelectedCompatibility() }
+        ))
 
         val volumeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
         volumeRow.addView(controlButton("- الصوت") { changeVolume(-5) })
-        volumeView = TextView(this).apply {
-            text = "الصوت: $currentVolume%"
-            textSize = 14f
-            setTextColor(0xFFF8FAFC.toInt())
-            gravity = Gravity.CENTER
+        volumeView = textView("الصوت: $currentVolume%", 14f, 0xFFF8FAFC.toInt(), Gravity.CENTER).apply {
             setPadding(20, 0, 20, 0)
         }
         volumeRow.addView(volumeView)
         volumeRow.addView(controlButton("+ الصوت") { changeVolume(5) })
+        root.addView(volumeRow)
 
-        status = TextView(this).apply {
-            text = "الحالة: اختر طريقة الاتصال"
-            textSize = 15f
-            setTextColor(0xFF5EEAD4.toInt())
-            gravity = Gravity.CENTER
+        status = textView("الحالة: اختر طريقة الاتصال", 15f, 0xFF5EEAD4.toInt(), Gravity.CENTER).apply {
             setPadding(0, 20, 0, 18)
         }
-
-        debugView = TextView(this).apply {
-            text = "التشخيص: لم يتم إرسال ملف بعد"
-            textSize = 13f
-            setTextColor(0xFFFDE68A.toInt())
+        debugView = textView("التشخيص: لم يتم إرسال ملف بعد", 13f, 0xFFFDE68A.toInt()).apply {
             setPadding(16, 16, 16, 16)
             setBackgroundColor(0xFF1E293B.toInt())
         }
-
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
-        root.addView(selectedDeviceView)
-        root.addView(queueView)
-        root.addView(row1)
-        root.addView(row2)
-        root.addView(volumeRow)
         root.addView(Button(this).apply {
             text = "تحديث التشخيص"
             setOnClickListener { refreshDiagnostics() }
@@ -186,11 +140,22 @@ class MainActivity : AppCompatActivity() {
         return ScrollView(this).apply { addView(root) }
     }
 
-    private fun controlButton(label: String, action: () -> Unit): Button {
-        return Button(this).apply {
-            text = label
-            setOnClickListener { action() }
-        }
+    private fun textView(textValue: String, size: Float, color: Int, gravityValue: Int = Gravity.START) = TextView(this).apply {
+        text = textValue
+        textSize = size
+        setTextColor(color)
+        gravity = gravityValue
+    }
+
+    private fun controlButton(label: String, action: () -> Unit) = Button(this).apply {
+        text = label
+        setOnClickListener { action() }
+    }
+
+    private fun horizontalRow(vararg views: Button) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        views.forEach { addView(it) }
     }
 
     private fun openScreenMirroring() {
@@ -219,9 +184,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderDevices(devices: List<CastDevice>) {
         list.removeAllViews()
         status.text = if (devices.isEmpty()) {
-            "لم يتم العثور على أجهزة DLNA. لشاشة G-Guard استخدم زر مرآة الشاشة / AnyView."
+            "لم يتم العثور على أجهزة DLNA. لشاشة G-Guard استخدم مرآة الشاشة / AnyView."
         } else {
-            "تم العثور على ${devices.size} جهاز في مسار DLNA"
+            "تم العثور على ${devices.size} جهاز"
         }
 
         devices.forEach { device ->
@@ -230,23 +195,23 @@ class MainActivity : AppCompatActivity() {
                 setBackgroundColor(0xFF172033.toInt())
                 setPadding(24, 20, 24, 20)
             }
-
-            container.addView(TextView(this).apply {
-                text = device.detailsSummary
-                textSize = 15f
-                setTextColor(0xFFF8FAFC.toInt())
-            })
-
+            container.addView(textView(device.detailsSummary, 15f, 0xFFF8FAFC.toInt()))
             container.addView(Button(this).apply {
                 text = "اتصال واختيار الجهاز"
                 setOnClickListener { selectDevice(device) }
             })
-
             container.addView(Button(this).apply {
                 text = "اختبار الاتصال"
                 setOnClickListener { testDevice(device) }
             })
-
+            container.addView(Button(this).apply {
+                text = "معلومات التوافق"
+                setOnClickListener { showCompatibility(device) }
+            })
+            container.addView(Button(this).apply {
+                text = "إعادة ضبط توافق الجهاز"
+                setOnClickListener { confirmResetCompatibility(device) }
+            })
             container.addView(Button(this).apply {
                 text = "اختيار عدة صور"
                 setOnClickListener {
@@ -254,7 +219,6 @@ class MainActivity : AppCompatActivity() {
                     imagePicker.launch(arrayOf("image/*"))
                 }
             })
-
             container.addView(Button(this).apply {
                 text = "اختيار عدة فيديوهات"
                 setOnClickListener {
@@ -262,12 +226,10 @@ class MainActivity : AppCompatActivity() {
                     videoPicker.launch(arrayOf("video/*"))
                 }
             })
-
-            val params = LinearLayout.LayoutParams(
+            list.addView(container, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, 0, 0, 16) }
-            list.addView(container, params)
+            ).apply { setMargins(0, 0, 0, 16) })
         }
     }
 
@@ -280,22 +242,56 @@ class MainActivity : AppCompatActivity() {
             append("\nDLNA: ${if (device.supportsDlna) "مدعوم" else "غير مؤكد"}")
             append(" — الصوت: ${if (device.supportsVolumeControl) "مدعوم" else "غير متوفر"}")
         }
-        status.text = "تم اختيار ${device.name} لمسار DLNA"
+        status.text = "تم اختيار ${device.name}"
     }
 
     private fun testDevice(device: CastDevice) {
         status.text = "جاري اختبار الاتصال مع ${device.ipAddress}..."
-        lifecycleScope.launch {
-            status.text = connectionTester.test(device).arabicSummary
+        lifecycleScope.launch { status.text = connectionTester.test(device).arabicSummary }
+    }
+
+    private fun showSelectedCompatibility() {
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
         }
+        showCompatibility(device)
+    }
+
+    private fun showCompatibility(device: CastDevice) {
+        AlertDialog.Builder(this)
+            .setTitle("معلومات التوافق")
+            .setMessage(mediaSender.compatibilitySummary(device))
+            .setPositiveButton("حسنًا", null)
+            .show()
+    }
+
+    private fun resetSelectedCompatibility() {
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
+        }
+        confirmResetCompatibility(device)
+    }
+
+    private fun confirmResetCompatibility(device: CastDevice) {
+        AlertDialog.Builder(this)
+            .setTitle("إعادة ضبط التوافق")
+            .setMessage("سيعيد التطبيق اختيار أفضل وضع في المحاولة القادمة. هل تريد مسح الوضع المحفوظ فقط أم السجل كاملًا؟")
+            .setPositiveButton("مسح الوضع فقط") { _, _ ->
+                status.text = mediaSender.resetCompatibility(device, false)
+            }
+            .setNegativeButton("مسح السجل كاملًا") { _, _ ->
+                status.text = mediaSender.resetCompatibility(device, true)
+            }
+            .setNeutralButton("إلغاء", null)
+            .show()
     }
 
     private fun addToQueue(uris: List<Uri>) {
         if (uris.isEmpty()) return
         uris.forEach { uri ->
-            runCatching {
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
+            runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
             if (uri !in queue) queue.add(uri)
         }
         if (queueIndex < 0 && queue.isNotEmpty()) queueIndex = 0
@@ -304,9 +300,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun playCurrent() {
-        val device = selectedDevice
-        if (device == null) {
-            status.text = "اختر جهاز DLNA أولًا، أو استخدم مرآة الشاشة لعرض الهاتف كاملًا."
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهاز DLNA أولًا، أو استخدم مرآة الشاشة."
             return
         }
         if (queueIndex !in queue.indices) {
@@ -316,8 +311,7 @@ class MainActivity : AppCompatActivity() {
         val uri = queue[queueIndex]
         status.text = "جاري إرسال الملف ${queueIndex + 1} من ${queue.size} إلى ${device.name}..."
         lifecycleScope.launch {
-            val result = mediaSender.prepareSend(device, uri)
-            status.text = result.arabicSummary
+            status.text = mediaSender.prepareSend(device, uri).arabicSummary
             updateQueueStatus()
             refreshDiagnostics()
         }
@@ -335,44 +329,34 @@ class MainActivity : AppCompatActivity() {
         playCurrent()
     }
 
-    private fun pausePlayback() {
-        val device = selectedDevice ?: run {
-            status.text = "اختر جهازًا أولًا."
-            return
-        }
+    private fun pausePlayback() = withSelectedDevice { device ->
         lifecycleScope.launch { status.text = mediaSender.pause(device) }
     }
 
-    private fun resumePlayback() {
-        val device = selectedDevice ?: run {
-            status.text = "اختر جهازًا أولًا."
-            return
-        }
+    private fun resumePlayback() = withSelectedDevice { device ->
         lifecycleScope.launch { status.text = mediaSender.resume(device) }
     }
 
-    private fun stopPlayback() {
-        val device = selectedDevice ?: run {
-            status.text = "اختر جهازًا أولًا."
-            return
-        }
+    private fun stopPlayback() = withSelectedDevice { device ->
         lifecycleScope.launch { status.text = mediaSender.stop(device) }
     }
 
-    private fun changeVolume(delta: Int) {
+    private fun changeVolume(delta: Int) = withSelectedDevice { device ->
+        if (!device.supportsVolumeControl) {
+            status.text = "الجهاز لا يدعم التحكم بالصوت عبر DLNA."
+            return@withSelectedDevice
+        }
+        currentVolume = (currentVolume + delta).coerceIn(0, 100)
+        volumeView.text = "الصوت: $currentVolume%"
+        lifecycleScope.launch { status.text = mediaSender.setVolume(device, currentVolume) }
+    }
+
+    private fun withSelectedDevice(action: (CastDevice) -> Unit) {
         val device = selectedDevice ?: run {
             status.text = "اختر جهازًا أولًا."
             return
         }
-        if (!device.supportsVolumeControl) {
-            status.text = "الجهاز لا يعلن عن دعم التحكم بالصوت عبر DLNA."
-            return
-        }
-        currentVolume = (currentVolume + delta).coerceIn(0, 100)
-        volumeView.text = "الصوت: $currentVolume%"
-        lifecycleScope.launch {
-            status.text = mediaSender.setVolume(device, currentVolume)
-        }
+        action(device)
     }
 
     private fun clearQueue() {
@@ -385,11 +369,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateQueueStatus() {
-        queueView.text = if (queue.isEmpty()) {
-            "قائمة التشغيل: فارغة"
-        } else {
-            "قائمة التشغيل: ${queue.size} ملفات — الحالي ${queueIndex + 1}"
-        }
+        queueView.text = if (queue.isEmpty()) "قائمة التشغيل: فارغة" else "قائمة التشغيل: ${queue.size} ملفات — الحالي ${queueIndex + 1}"
     }
 
     private fun refreshDiagnostics() {
