@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 
 class MediaSender(private val context: Context) {
     private val localMediaServer = LocalMediaServer(context.applicationContext)
+    private val dlnaController = DlnaController()
 
     suspend fun prepareSend(device: CastDevice, mediaUri: Uri): MediaSendResult = withContext(Dispatchers.IO) {
         val rawMimeType = context.contentResolver.getType(mediaUri).orEmpty()
@@ -24,26 +25,32 @@ class MediaSender(private val context: Context) {
             runCatching { localMediaServer.start(mediaUri, mimeType) }.getOrNull()
         } else null
 
+        val dlnaResult = if (localServerResult != null && (route == MediaRoute.DLNA || route == MediaRoute.ANYVIEW)) {
+            dlnaController.play(device, localServerResult.url, mimeType)
+        } else null
+
         val message = when (route) {
             MediaRoute.CHROMECAST -> {
                 if (localServerResult != null) {
-                    "تم تجهيز رابط محلي للملف. Chromecast يحتاج الآن Google Cast SDK لإرسال هذا الرابط إلى الجهاز."
+                    "تم تجهيز رابط محلي للملف. Chromecast يحتاج لاحقًا Google Cast SDK لإرسال هذا الرابط إلى الجهاز."
                 } else {
                     "تم اختيار مسار Chromecast، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
             }
             MediaRoute.DLNA -> {
-                if (localServerResult != null) {
-                    "تم تجهيز رابط محلي للملف. الخطوة التالية هي إرسال أمر DLNA للتلفاز كي يفتح هذا الرابط."
-                } else {
-                    "تم اختيار مسار DLNA / UPnP، لكن لم يتم تجهيز الرابط المحلي للملف."
+                when {
+                    dlnaResult?.success == true -> dlnaResult.message
+                    dlnaResult != null -> "تم تجهيز الرابط المحلي، لكن لم يكتمل تشغيل DLNA: ${dlnaResult.message}"
+                    localServerResult != null -> "تم تجهيز رابط محلي للملف. الخطوة التالية تحسين أوامر DLNA لهذا النوع من التلفاز."
+                    else -> "تم اختيار مسار DLNA / UPnP، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
             }
             MediaRoute.ANYVIEW -> {
-                if (localServerResult != null) {
-                    "تم تجهيز رابط محلي للملف. إذا كان AnyView يعمل عبر DLNA يمكن تجربة أمر التشغيل لاحقًا."
-                } else {
-                    "تم اختيار مسار AnyView، لكن لم يتم تجهيز الرابط المحلي للملف."
+                when {
+                    dlnaResult?.success == true -> dlnaResult.message
+                    dlnaResult != null -> "تم تجهيز الرابط المحلي، لكن AnyView لم يقبل أمر DLNA: ${dlnaResult.message}"
+                    localServerResult != null -> "تم تجهيز رابط محلي للملف. إذا كان AnyView يعمل عبر DLNA يمكن تحسين أمر التشغيل لاحقًا."
+                    else -> "تم اختيار مسار AnyView، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
             }
             MediaRoute.BASIC_HTTP -> {
@@ -65,6 +72,8 @@ class MediaSender(private val context: Context) {
             mediaKind = mediaKind,
             route = route,
             localUrl = localServerResult?.url,
+            dlnaAttempted = dlnaResult != null,
+            dlnaSuccess = dlnaResult?.success == true,
             isReadyForNextStep = localServerResult != null,
             arabicMessage = message
         )
@@ -103,6 +112,8 @@ data class MediaSendResult(
     val mediaKind: MediaKind,
     val route: MediaRoute,
     val localUrl: String?,
+    val dlnaAttempted: Boolean,
+    val dlnaSuccess: Boolean,
     val isReadyForNextStep: Boolean,
     val arabicMessage: String
 ) {
@@ -114,6 +125,9 @@ data class MediaSendResult(
             append("المسار المختار: ${route.arabicName}\n")
             if (!localUrl.isNullOrBlank()) {
                 append("الرابط المحلي: $localUrl\n")
+            }
+            if (dlnaAttempted) {
+                append("محاولة DLNA: ${if (dlnaSuccess) "نجحت" else "لم تكتمل"}\n")
             }
             append(arabicMessage)
         }
