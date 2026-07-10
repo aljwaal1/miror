@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.BufferedReader
+import java.io.InputStream
 import java.io.InputStreamReader
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -64,10 +65,14 @@ class LocalMediaServer(private val context: Context) {
             val media = sharedMedia ?: return
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
             val requestLine = reader.readLine().orEmpty()
+            val headers = mutableMapOf<String, String>()
 
             while (true) {
                 val line = reader.readLine() ?: break
                 if (line.isBlank()) break
+                val key = line.substringBefore(":").trim().lowercase()
+                val value = line.substringAfter(":", "").trim()
+                if (key.isNotBlank()) headers[key] = value
             }
 
             val method = requestLine.substringBefore(" ").uppercase()
@@ -79,23 +84,69 @@ class LocalMediaServer(private val context: Context) {
                 return
             }
 
-            val headers = buildString {
-                append("HTTP/1.1 200 OK\r\n")
+            val range = parseRange(headers["range"], media.size)
+            val partial = range != null
+            val start = range?.first ?: 0L
+            val end = range?.second ?: ((media.size - 1).coerceAtLeast(0L))
+            val contentLength = if (media.size > 0) (end - start + 1).coerceAtLeast(0L) else -1L
+
+            val responseHeaders = buildString {
+                append(if (partial) "HTTP/1.1 206 Partial Content\r\n" else "HTTP/1.1 200 OK\r\n")
                 append("Content-Type: ${media.mimeType}\r\n")
-                if (media.size > 0) append("Content-Length: ${media.size}\r\n")
                 append("Accept-Ranges: bytes\r\n")
+                if (partial && media.size > 0) append("Content-Range: bytes $start-$end/${media.size}\r\n")
+                if (contentLength >= 0) append("Content-Length: $contentLength\r\n")
                 append("Access-Control-Allow-Origin: *\r\n")
                 append("Connection: close\r\n")
                 append("\r\n")
             }
-            output.write(headers.toByteArray())
+            output.write(responseHeaders.toByteArray())
 
             if (method == "GET") {
                 context.contentResolver.openInputStream(media.uri)?.use { input ->
-                    input.copyTo(output)
+                    skipFully(input, start)
+                    if (contentLength >= 0) {
+                        copyLimited(input, output, contentLength)
+                    } else {
+                        input.copyTo(output)
+                    }
                 }
             }
             output.flush()
+        }
+    }
+
+    private fun parseRange(rangeHeader: String?, size: Long): Pair<Long, Long>? {
+        if (rangeHeader.isNullOrBlank() || size <= 0) return null
+        if (!rangeHeader.startsWith("bytes=", ignoreCase = true)) return null
+        val value = rangeHeader.substringAfter("=").substringBefore(",").trim()
+        val startText = value.substringBefore("-").trim()
+        val endText = value.substringAfter("-", "").trim()
+
+        val start = startText.toLongOrNull() ?: return null
+        val requestedEnd = endText.toLongOrNull() ?: (size - 1)
+        val end = requestedEnd.coerceAtMost(size - 1)
+        if (start < 0 || start > end) return null
+        return start to end
+    }
+
+    private fun skipFully(input: InputStream, bytes: Long) {
+        var remaining = bytes
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped <= 0) break
+            remaining -= skipped
+        }
+    }
+
+    private fun copyLimited(input: InputStream, output: java.io.OutputStream, limit: Long) {
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        var remaining = limit
+        while (remaining > 0) {
+            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read < 0) break
+            output.write(buffer, 0, read)
+            remaining -= read
         }
     }
 
