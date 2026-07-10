@@ -2,7 +2,7 @@
 
 ## Current stage
 
-The project has moved from media selection into the first real playback attempt stage for DLNA / UPnP devices.
+The project has moved from media selection into the first real playback attempt stage for DLNA / UPnP devices, and now has a GitHub Actions workflow prepared to build an APK.
 
 ## Completed
 
@@ -18,6 +18,8 @@ The project has moved from media selection into the first real playback attempt 
 - Initial MediaSender routing layer.
 - Local temporary media server.
 - Initial DLNA AVTransport controller.
+- APK build workflow.
+- APK download placeholder page.
 
 ## Added in this stage
 
@@ -40,25 +42,33 @@ The project has moved from media selection into the first real playback attempt 
   - Attempts DLNA playback automatically for DLNA / UPnP and possible AnyView devices.
   - Shows whether the DLNA attempt succeeded or needs device-specific improvements.
 
+- `.github/workflows/build-apk.yml`
+  - Builds the Android APK using Java 17 and Gradle.
+  - Copies the APK to `apk/explapp-mirror-debug.apk`.
+  - Updates `DOWNLOAD_APK.md`.
+  - Commits the APK back to the repository after a successful build.
+
 ## Current limitation
 
 The DLNA playback path is now implemented as a first attempt, but real TV behavior can vary by brand. Some screens require:
 
 - Different DLNA metadata.
-- Range request support for video seeking.
+- HTTP Range support for video playback and seeking.
 - Separate rendering control commands.
 - Chromecast SDK for Chromecast devices.
 - Miracast-specific support for pure screen mirroring.
 
 ## Next step
 
-Improve the local media server and DLNA controller by adding:
+Run the workflow and inspect the build result. If the build succeeds, test the APK on a phone and a TV on the same Wi-Fi network.
+
+Then improve the local media server and DLNA controller by adding:
 
 1. HTTP Range support for videos.
 2. Better DLNA metadata for image vs video.
 3. Stop / pause / resume commands.
 4. A clearer device details screen showing protocol, services, and last test result.
-5. A build workflow check to confirm the APK builds successfully.
+5. Chromecast SDK route for Chromecast devices.
 
 ## Approximate progress
 
@@ -69,8 +79,9 @@ Improve the local media server and DLNA controller by adding:
 - Media selection: 80%
 - Local media server: 70%
 - DLNA playback attempt: 45%
+- APK workflow: 70%
 - Chromecast route: 15%
 - Playback control: 15%
 - Screen mirroring: 0%
 
-Overall project progress: about 58%.
+Overall project progress: about 60%.
