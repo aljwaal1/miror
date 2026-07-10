@@ -2,89 +2,79 @@
 
 ## Current stage
 
-The project is now beyond discovery and basic media preparation. It has a working local media-serving layer, first DLNA playback attempt, HTTP Range support for video playback, and playback control buttons in the UI.
+The project is now in the advanced DLNA testing stage. The app supports richer device discovery, device details, multi-file media queue, local media serving, HTTP Range support, DLNA playback commands, volume control when supported, and an improved APK build workflow.
 
 ## Completed
 
 - Android project skeleton.
 - Local network scanner.
 - SSDP / UPnP discovery scanner.
+- Device description parsing.
 - Device type detection for Chromecast, DLNA, UPnP, AnyView and unknown devices.
+- Rich `CastDevice` model with manufacturer, model, UUID, service URLs, DLNA support and volume support.
 - Connection tester with common media/cast ports.
-- Device list UI.
-- Per-device connection test action.
-- Image picker action per device.
-- Video picker action per device.
-- Initial MediaSender routing layer.
+- Device list UI with real device details.
+- Device selection state.
+- Multi-image picker.
+- Multi-video picker.
+- Playback queue.
+- Previous / play / next controls.
+- Pause / resume / stop controls.
+- Volume up/down controls when `RenderingControl` is available.
 - Local temporary media server.
 - HTTP Range support for videos.
-- Initial DLNA AVTransport controller.
-- DLNA Play command.
-- DLNA Pause command.
-- DLNA Resume command.
-- DLNA Stop command.
-- Playback control buttons in the UI.
+- DLNA AVTransport controller.
+- DLNA RenderingControl volume command.
 - APK build workflow.
+- APK artifact upload in GitHub Actions.
 - APK download placeholder page.
 
-## Added in the latest fast-progress stage
+## Latest workflow improvement
 
-- `LocalMediaServer.kt`
-  - Added HTTP Range request parsing.
-  - Returns `206 Partial Content` when a TV requests part of a video.
-  - Sends `Content-Range`, `Content-Length`, and `Accept-Ranges` headers.
-  - Copies only the requested byte range instead of always sending the whole file.
+- `.github/workflows/build-apk.yml`
+  - Still builds `apk/explapp-mirror-debug.apk`.
+  - Now also uploads the APK as a GitHub Actions artifact named `explapp-mirror-debug-apk`.
+  - This gives a second download path even if committing the APK back to the repository does not happen.
 
-- `DlnaController.kt`
-  - Added Pause.
-  - Added Resume / Play.
-  - Added Stop.
-  - Refactored AVTransport control URL discovery for reuse.
+## Build status note
 
-- `MediaSender.kt`
-  - Exposes pause, resume, and stop methods.
-  - Stops the local media server after Stop.
-
-- `MainActivity.kt`
-  - Added buttons on every device card:
-    - Choose image and play.
-    - Choose video and play.
-    - Pause.
-    - Resume.
-    - Stop.
+Checks and workflow runs are not visible yet for the latest connector-created commits. This can happen when repository workflows are not triggered automatically by commits made through the app/API path. The workflow is ready and can be triggered manually from GitHub Actions using `Build APK Direct`.
 
 ## Current limitation
 
-The app is now much closer to real TV playback, but device behavior can still vary. Remaining technical work:
+The app is now close to real TV playback testing, but remaining work depends on the first APK build and device test:
 
-- Test APK result from GitHub Actions.
-- Fix any compile errors if Actions reports one.
-- Add richer DLNA metadata for photos vs videos.
-- Add a dedicated device details screen.
-- Add Chromecast SDK route.
-- Screen mirroring remains a separate advanced phase because Miracast support is more restricted on Android.
+- Run or inspect the GitHub Actions build.
+- Fix any compile error reported by Actions.
+- Test with the G-Guard screen and the DLNA receiver on the same Wi-Fi.
+- Tune DLNA metadata if a specific TV rejects playback.
+- Add Chromecast SDK route later.
+- Screen mirroring remains a separate advanced phase because Miracast support is restricted on Android.
 
 ## Next step
 
-1. Inspect GitHub Actions build result.
-2. If it fails, fix the exact error.
-3. If it succeeds, test APK on phone + TV on same Wi-Fi.
-4. Add a device details page and save known devices.
-5. Start Chromecast SDK integration after DLNA test.
+1. Trigger `Build APK Direct` from GitHub Actions if it does not start automatically.
+2. Download `explapp-mirror-debug-apk` artifact or the direct APK in `/apk`.
+3. Install on Android phone.
+4. Test discovery, queue playback, volume, and pause/resume/stop against the actual TV.
+5. Use the TV response/errors to tune DLNA commands.
 
 ## Approximate progress
 
 - Project setup: 100%
-- Device discovery: 95%
+- Device discovery: 97%
+- Device details parsing: 90%
 - Connection testing: 90%
-- Device UI: 90%
-- Media selection: 90%
-- Local media server: 85%
-- HTTP Range video support: 75%
-- DLNA playback attempt: 65%
-- Playback control: 60%
-- APK workflow: 70%
+- Device UI: 92%
+- Media selection: 95%
+- Playback queue: 85%
+- Local media server: 88%
+- HTTP Range video support: 80%
+- DLNA playback attempt: 72%
+- Playback control: 70%
+- Volume control: 60%
+- APK workflow: 85%
 - Chromecast route: 15%
 - Screen mirroring: 0%
 
-Overall project progress: about 72%.
+Overall project progress: about 78%.
