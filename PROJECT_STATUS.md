@@ -2,7 +2,7 @@
 
 ## Current stage
 
-The project is now in the advanced DLNA testing stage. The app supports richer device discovery, device details, multi-file media queue, local media serving, HTTP Range support, DLNA playback commands, volume control when supported, and an improved APK build workflow.
+The project is now in the advanced DLNA debugging and device-compatibility stage. The app supports rich device discovery, device details, media queue playback, local media serving, HTTP Range support, DLNA playback commands, volume control, and now has an in-app diagnostics panel to determine why a TV accepts control commands but does not display media.
 
 ## Completed
 
@@ -23,41 +23,64 @@ The project is now in the advanced DLNA testing stage. The app supports richer d
 - Volume up/down controls when `RenderingControl` is available.
 - Local temporary media server.
 - HTTP Range support for videos.
+- Local server diagnostics: request count, last client IP, method, path, range, HTTP status and bytes sent.
 - DLNA AVTransport controller.
 - DLNA RenderingControl volume command.
+- Better DLNA metadata for images vs videos.
+- In-app diagnostics panel.
 - APK build workflow.
 - APK artifact upload in GitHub Actions.
 - APK download placeholder page.
 
-## Latest workflow improvement
+## Latest debugging improvements
 
-- `.github/workflows/build-apk.yml`
-  - Still builds `apk/explapp-mirror-debug.apk`.
-  - Now also uploads the APK as a GitHub Actions artifact named `explapp-mirror-debug-apk`.
-  - This gives a second download path even if committing the APK back to the repository does not happen.
+- `LocalMediaServer.kt`
+  - Records whether the TV actually requested the media file.
+  - Shows the last IP that requested the file.
+  - Shows the last HTTP method, path, Range header, status code and bytes sent.
+  - This tells us if the problem is DLNA command routing or media loading/display.
 
-## Build status note
+- `MediaSender.kt`
+  - Stores the last send result.
+  - Exposes a combined Arabic diagnostics summary.
+  - Shows DLNA attempt status and HTTP code.
 
-Checks and workflow runs are not visible yet for the latest connector-created commits. This can happen when repository workflows are not triggered automatically by commits made through the app/API path. The workflow is ready and can be triggered manually from GitHub Actions using `Build APK Direct`.
+- `MainActivity.kt`
+  - Added a visible diagnostics panel.
+  - Added a `تحديث التشخيص` button.
+  - Automatically refreshes diagnostics after sending media.
+
+- `DlnaController.kt`
+  - Improved `CurrentURIMetaData`.
+  - Sends image files as `object.item.imageItem.photo`.
+  - Sends video files as `object.item.videoItem`.
+  - Keeps correct MIME-specific `protocolInfo`.
+
+## How to interpret the next test
+
+After selecting an image/video and pressing `تحديث التشخيص`:
+
+- If `عدد طلبات التلفاز/الأجهزة = 0`, the TV accepted control/volume but did not request the media URL. Then we tune DLNA SOAP / metadata / connection command.
+- If the request count is greater than 0 and bytes were sent, the TV reached the phone server. Then the issue is format/metadata/display compatibility.
+- If HTTP is 206, Range is working.
+- If HTTP is 200 and bytes were sent, simple full-file transfer is working.
 
 ## Current limitation
 
-The app is now close to real TV playback testing, but remaining work depends on the first APK build and device test:
+The app is now ready for a meaningful real-device test. Remaining work depends on the diagnostics result from the G-Guard screen or DLNA receiver:
 
-- Run or inspect the GitHub Actions build.
-- Fix any compile error reported by Actions.
-- Test with the G-Guard screen and the DLNA receiver on the same Wi-Fi.
-- Tune DLNA metadata if a specific TV rejects playback.
+- Tune DLNA metadata if the TV requests the file but does not display it.
+- Tune SOAP command order if the TV does not request the file.
 - Add Chromecast SDK route later.
 - Screen mirroring remains a separate advanced phase because Miracast support is restricted on Android.
 
 ## Next step
 
-1. Trigger `Build APK Direct` from GitHub Actions if it does not start automatically.
-2. Download `explapp-mirror-debug-apk` artifact or the direct APK in `/apk`.
-3. Install on Android phone.
-4. Test discovery, queue playback, volume, and pause/resume/stop against the actual TV.
-5. Use the TV response/errors to tune DLNA commands.
+1. Build/install the updated APK.
+2. Pick the G-Guard/DLNA device.
+3. Select one simple JPG image first.
+4. Press `تحديث التشخيص` after the attempt.
+5. Use the diagnostic output to decide the exact next fix.
 
 ## Approximate progress
 
@@ -65,16 +88,17 @@ The app is now close to real TV playback testing, but remaining work depends on 
 - Device discovery: 97%
 - Device details parsing: 90%
 - Connection testing: 90%
-- Device UI: 92%
+- Device UI: 94%
 - Media selection: 95%
 - Playback queue: 85%
-- Local media server: 88%
-- HTTP Range video support: 80%
-- DLNA playback attempt: 72%
+- Local media server: 92%
+- HTTP Range video support: 82%
+- Diagnostics: 85%
+- DLNA playback attempt: 76%
 - Playback control: 70%
-- Volume control: 60%
+- Volume control: 65%
 - APK workflow: 85%
 - Chromecast route: 15%
 - Screen mirroring: 0%
 
-Overall project progress: about 78%.
+Overall project progress: about 82%.
