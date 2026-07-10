@@ -9,6 +9,7 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.Collections
 import kotlin.concurrent.thread
 
 class LocalMediaServer(private val context: Context) {
@@ -108,9 +109,10 @@ class LocalMediaServer(private val context: Context) {
     }
 
     private fun findLocalIpv4Address(): String? {
-        return NetworkInterface.getNetworkInterfaces().asSequence()
+        val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+        return interfaces.asSequence()
             .filter { it.isUp && !it.isLoopback }
-            .flatMap { it.inetAddresses.asSequence() }
+            .flatMap { Collections.list(it.inetAddresses).asSequence() }
             .filterIsInstance<Inet4Address>()
             .firstOrNull { !it.isLoopbackAddress }
             ?.hostAddress
