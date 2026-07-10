@@ -1,0 +1,59 @@
+name: Build APK Direct
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'apk/**'
+      - 'DOWNLOAD_APK.md'
+      - 'PROJECT_STATUS.md'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Copy APK
+        run: |
+          mkdir -p apk
+          cp app/build/outputs/apk/debug/app-debug.apk apk/explapp-mirror-debug.apk
+
+      - name: Update download page
+        run: |
+          cat > DOWNLOAD_APK.md <<'EOF'
+          # ExplApp Mirror APK
+
+          Download the latest debug APK:
+
+          https://github.com/aljwaal1/miror/raw/main/apk/explapp-mirror-debug.apk
+          EOF
+
+      - name: Commit APK
+        if: github.actor != 'github-actions[bot]'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apk/explapp-mirror-debug.apk DOWNLOAD_APK.md
+          git commit -m "Build ExplApp Mirror debug APK" || echo "No APK changes to commit"
+          git push
