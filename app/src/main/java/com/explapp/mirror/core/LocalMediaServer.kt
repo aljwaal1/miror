@@ -140,7 +140,7 @@ class LocalMediaServer(private val context: Context) {
     }
 
     private fun copyLimited(input: InputStream, output: java.io.OutputStream, limit: Long) {
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(64 * 1024)
         var remaining = limit
         while (remaining > 0) {
             val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
