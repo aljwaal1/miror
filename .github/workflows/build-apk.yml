@@ -39,6 +39,12 @@ jobs:
           mkdir -p apk
           cp app/build/outputs/apk/debug/app-debug.apk apk/explapp-mirror-debug.apk
 
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: explapp-mirror-debug-apk
+          path: apk/explapp-mirror-debug.apk
+
       - name: Update download page
         run: |
           cat > DOWNLOAD_APK.md <<'EOF'
@@ -47,13 +53,14 @@ jobs:
           Download the latest debug APK:
 
           https://github.com/aljwaal1/miror/raw/main/apk/explapp-mirror-debug.apk
+
+          If the direct link is not ready yet, download the artifact named `explapp-mirror-debug-apk` from the latest GitHub Actions run.
           EOF
 
       - name: Commit APK
-        if: github.actor != 'github-actions[bot]'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apk/explapp-mirror-debug.apk DOWNLOAD_APK.md
-          git commit -m "Build ExplApp Mirror debug APK" || echo "No APK changes to commit"
-          git push
+          git diff --cached --quiet || git commit -m "Build ExplApp Mirror debug APK"
+          git push || echo "No push needed"
