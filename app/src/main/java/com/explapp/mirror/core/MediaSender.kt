@@ -8,8 +8,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class MediaSender(private val context: Context) {
+    private val localMediaServer = LocalMediaServer(context.applicationContext)
+
     suspend fun prepareSend(device: CastDevice, mediaUri: Uri): MediaSendResult = withContext(Dispatchers.IO) {
-        val mimeType = context.contentResolver.getType(mediaUri).orEmpty()
+        val rawMimeType = context.contentResolver.getType(mediaUri).orEmpty()
+        val mimeType = rawMimeType.ifBlank { "application/octet-stream" }
         val mediaKind = when {
             mimeType.startsWith("image/") -> MediaKind.IMAGE
             mimeType.startsWith("video/") -> MediaKind.VIDEO
@@ -17,18 +20,38 @@ class MediaSender(private val context: Context) {
         }
 
         val route = chooseRoute(device)
+        val localServerResult = if (route != MediaRoute.UNKNOWN) {
+            runCatching { localMediaServer.start(mediaUri, mimeType) }.getOrNull()
+        } else null
+
         val message = when (route) {
             MediaRoute.CHROMECAST -> {
-                "تم اختيار مسار Chromecast. الخطوة التالية تحتاج إضافة Google Cast SDK لإرسال الرابط إلى الجهاز."
+                if (localServerResult != null) {
+                    "تم تجهيز رابط محلي للملف. Chromecast يحتاج الآن Google Cast SDK لإرسال هذا الرابط إلى الجهاز."
+                } else {
+                    "تم اختيار مسار Chromecast، لكن لم يتم تجهيز الرابط المحلي للملف."
+                }
             }
             MediaRoute.DLNA -> {
-                "تم اختيار مسار DLNA / UPnP. الخطوة التالية هي إنشاء خادم محلي مؤقت داخل الهاتف حتى يقرأ التلفاز الملف."
+                if (localServerResult != null) {
+                    "تم تجهيز رابط محلي للملف. الخطوة التالية هي إرسال أمر DLNA للتلفاز كي يفتح هذا الرابط."
+                } else {
+                    "تم اختيار مسار DLNA / UPnP، لكن لم يتم تجهيز الرابط المحلي للملف."
+                }
             }
             MediaRoute.ANYVIEW -> {
-                "تم اختيار مسار AnyView. بعض الشاشات تدعم استقبال الوسائط عبر DLNA، وبعضها يحتاج Miracast خاص."
+                if (localServerResult != null) {
+                    "تم تجهيز رابط محلي للملف. إذا كان AnyView يعمل عبر DLNA يمكن تجربة أمر التشغيل لاحقًا."
+                } else {
+                    "تم اختيار مسار AnyView، لكن لم يتم تجهيز الرابط المحلي للملف."
+                }
             }
             MediaRoute.BASIC_HTTP -> {
-                "الجهاز يملك منفذ HTTP مفتوح. يمكن تجربة خادم محلي مؤقت في المرحلة التالية."
+                if (localServerResult != null) {
+                    "تم تجهيز رابط محلي للملف. يمكن استخدامه لاحقًا في أوامر التشغيل أو الاختبار اليدوي."
+                } else {
+                    "الجهاز يملك مسار HTTP مبدئي، لكن لم يتم تجهيز الرابط المحلي للملف."
+                }
             }
             MediaRoute.UNKNOWN -> {
                 "لم يتم تحديد بروتوكول مناسب لهذا الجهاز بعد. جرّب جهازًا يظهر كـ DLNA أو Chromecast."
@@ -38,10 +61,11 @@ class MediaSender(private val context: Context) {
         MediaSendResult(
             deviceIp = device.ipAddress,
             mediaUri = mediaUri.toString(),
-            mimeType = mimeType.ifBlank { "غير معروف" },
+            mimeType = mimeType,
             mediaKind = mediaKind,
             route = route,
-            isReadyForNextStep = route != MediaRoute.UNKNOWN,
+            localUrl = localServerResult?.url,
+            isReadyForNextStep = localServerResult != null,
             arabicMessage = message
         )
     }
@@ -78,6 +102,7 @@ data class MediaSendResult(
     val mimeType: String,
     val mediaKind: MediaKind,
     val route: MediaRoute,
+    val localUrl: String?,
     val isReadyForNextStep: Boolean,
     val arabicMessage: String
 ) {
@@ -87,6 +112,9 @@ data class MediaSendResult(
             append("النوع: $mimeType\n")
             append("الجهاز: $deviceIp\n")
             append("المسار المختار: ${route.arabicName}\n")
+            if (!localUrl.isNullOrBlank()) {
+                append("الرابط المحلي: $localUrl\n")
+            }
             append(arabicMessage)
         }
 }
