@@ -2,6 +2,8 @@ package com.explapp.mirror.core
 
 import android.content.Context
 import android.net.Uri
+import com.explapp.mirror.compatibility.CompatibilityEngine
+import com.explapp.mirror.database.KnownDevicesStore
 import com.explapp.mirror.model.CastDevice
 import com.explapp.mirror.model.DeviceType
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +12,8 @@ import kotlinx.coroutines.withContext
 class MediaSender(private val context: Context) {
     private val localMediaServer = LocalMediaServer(context.applicationContext)
     private val dlnaController = DlnaController()
+    private val compatibilityEngine = CompatibilityEngine()
+    private val knownDevicesStore = KnownDevicesStore(context.applicationContext)
     private var lastResult: MediaSendResult? = null
 
     suspend fun prepareSend(device: CastDevice, mediaUri: Uri): MediaSendResult = withContext(Dispatchers.IO) {
@@ -21,6 +25,8 @@ class MediaSender(private val context: Context) {
             else -> MediaKind.UNKNOWN
         }
 
+        val savedProfileId = knownDevicesStore.getSavedProfileId(device)
+        val profile = compatibilityEngine.selectProfile(device, savedProfileId)
         val route = chooseRoute(device)
         val localServerResult = if (route != MediaRoute.UNKNOWN) {
             runCatching { localMediaServer.start(mediaUri, mimeType) }.getOrNull()
@@ -29,6 +35,12 @@ class MediaSender(private val context: Context) {
         val dlnaResult = if (localServerResult != null && (route == MediaRoute.DLNA || route == MediaRoute.ANYVIEW)) {
             dlnaController.play(device, localServerResult.url, mimeType)
         } else null
+
+        if (dlnaResult?.success == true) {
+            knownDevicesStore.recordSuccess(device, profile.id)
+        } else if (dlnaResult != null) {
+            knownDevicesStore.recordFailure(device, dlnaResult.message)
+        }
 
         val message = when (route) {
             MediaRoute.CHROMECAST -> {
@@ -40,7 +52,7 @@ class MediaSender(private val context: Context) {
             }
             MediaRoute.DLNA -> {
                 when {
-                    dlnaResult?.success == true -> dlnaResult.message
+                    dlnaResult?.success == true -> "${dlnaResult.message}\nتم حفظ وضع التوافق: ${profile.displayName}"
                     dlnaResult != null -> "تم تجهيز الرابط المحلي، لكن لم يكتمل تشغيل DLNA: ${dlnaResult.message}"
                     localServerResult != null -> "تم تجهيز رابط محلي للملف، لكن الجهاز لا يعلن عن رابط تحكم DLNA صالح."
                     else -> "تم اختيار مسار DLNA / UPnP، لكن لم يتم تجهيز الرابط المحلي للملف."
@@ -48,7 +60,7 @@ class MediaSender(private val context: Context) {
             }
             MediaRoute.ANYVIEW -> {
                 when {
-                    dlnaResult?.success == true -> dlnaResult.message
+                    dlnaResult?.success == true -> "${dlnaResult.message}\nتم حفظ وضع التوافق: ${profile.displayName}"
                     dlnaResult != null -> "تم تجهيز الرابط المحلي، لكن AnyView لم يقبل أمر DLNA: ${dlnaResult.message}"
                     localServerResult != null -> "تم تجهيز رابط محلي للملف. جهاز AnyView يحتاج بروتوكولًا متوافقًا فعليًا للإرسال."
                     else -> "تم اختيار مسار AnyView، لكن لم يتم تجهيز الرابط المحلي للملف."
@@ -70,6 +82,8 @@ class MediaSender(private val context: Context) {
             mimeType = mimeType,
             mediaKind = mediaKind,
             route = route,
+            profileId = profile.id,
+            profileName = profile.displayName,
             localUrl = localServerResult?.url,
             dlnaAttempted = dlnaResult != null,
             dlnaSuccess = dlnaResult?.success == true,
@@ -92,6 +106,11 @@ class MediaSender(private val context: Context) {
         return dlnaController.setVolume(device, volume).message
     }
 
+    fun compatibilitySummary(device: CastDevice): String {
+        val profile = compatibilityEngine.selectProfile(device, knownDevicesStore.getSavedProfileId(device))
+        return compatibilityEngine.explain(device, profile) + "\n" + knownDevicesStore.summary(device)
+    }
+
     fun stopLocalServer() {
         localMediaServer.stop()
     }
@@ -105,6 +124,7 @@ class MediaSender(private val context: Context) {
                 append("لا توجد محاولة إرسال بعد.\n")
             } else {
                 append("المسار: ${result.route.arabicName}\n")
+                append("وضع التوافق: ${result.profileName} (${result.profileId})\n")
                 append("DLNA: ${if (result.dlnaAttempted) "تمت المحاولة" else "لم تتم"}\n")
                 append("نجاح DLNA: ${if (result.dlnaSuccess) "نعم" else "لا"}\n")
                 if (result.dlnaHttpCode != null) append("HTTP DLNA: ${result.dlnaHttpCode}\n")
@@ -147,6 +167,8 @@ data class MediaSendResult(
     val mimeType: String,
     val mediaKind: MediaKind,
     val route: MediaRoute,
+    val profileId: String,
+    val profileName: String,
     val localUrl: String?,
     val dlnaAttempted: Boolean,
     val dlnaSuccess: Boolean,
@@ -161,6 +183,7 @@ data class MediaSendResult(
             append("النوع: $mimeType\n")
             append("الجهاز: $deviceIp\n")
             append("المسار المختار: ${route.arabicName}\n")
+            append("وضع التوافق: $profileName\n")
             if (!localUrl.isNullOrBlank()) append("الرابط المحلي: $localUrl\n")
             if (dlnaAttempted) append("محاولة DLNA: ${if (dlnaSuccess) "نجحت" else "لم تكتمل"}\n")
             if (dlnaHttpCode != null) append("HTTP DLNA: $dlnaHttpCode\n")
