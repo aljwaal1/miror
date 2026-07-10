@@ -27,9 +27,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var list: LinearLayout
     private lateinit var queueView: TextView
     private lateinit var selectedDeviceView: TextView
+    private lateinit var volumeView: TextView
     private var selectedDevice: CastDevice? = null
     private val queue = mutableListOf<Uri>()
     private var queueIndex = -1
+    private var currentVolume = 30
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         addToQueue(uris)
@@ -110,6 +112,21 @@ class MainActivity : AppCompatActivity() {
         row2.addView(controlButton("إيقاف") { stopPlayback() })
         row2.addView(controlButton("مسح القائمة") { clearQueue() })
 
+        val volumeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        volumeRow.addView(controlButton("- الصوت") { changeVolume(-5) })
+        volumeView = TextView(this).apply {
+            text = "الصوت: $currentVolume%"
+            textSize = 14f
+            setTextColor(0xFFF8FAFC.toInt())
+            gravity = Gravity.CENTER
+            setPadding(20, 0, 20, 0)
+        }
+        volumeRow.addView(volumeView)
+        volumeRow.addView(controlButton("+ الصوت") { changeVolume(5) })
+
         status = TextView(this).apply {
             text = "الحالة: جاهز للبحث"
             textSize = 15f
@@ -124,6 +141,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(queueView)
         root.addView(row1)
         root.addView(row2)
+        root.addView(volumeRow)
         root.addView(status)
         root.addView(list)
         return ScrollView(this).apply { addView(root) }
@@ -163,18 +181,14 @@ class MainActivity : AppCompatActivity() {
             }
 
             container.addView(TextView(this).apply {
-                text = "${device.name}\nIP: ${device.ipAddress}\nالنوع: ${device.displayType}\nالخدمات: ${device.services.joinToString()}"
+                text = device.detailsSummary
                 textSize = 15f
                 setTextColor(0xFFF8FAFC.toInt())
             })
 
             container.addView(Button(this).apply {
                 text = "اتصال واختيار الجهاز"
-                setOnClickListener {
-                    selectedDevice = device
-                    selectedDeviceView.text = "الجهاز المحدد: ${device.name} (${device.ipAddress})"
-                    status.text = "تم اختيار ${device.name}"
-                }
+                setOnClickListener { selectDevice(device) }
             })
 
             container.addView(Button(this).apply {
@@ -208,7 +222,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectDevice(device: CastDevice) {
         selectedDevice = device
-        selectedDeviceView.text = "الجهاز المحدد: ${device.name} (${device.ipAddress})"
+        selectedDeviceView.text = buildString {
+            append("الجهاز المحدد: ${device.name} (${device.ipAddress})")
+            if (device.manufacturer.isNotBlank()) append("\nالشركة: ${device.manufacturer}")
+            if (device.modelName.isNotBlank()) append(" — ${device.modelName}")
+            append("\nDLNA: ${if (device.supportsDlna) "مدعوم" else "غير مؤكد"}")
+            append(" — الصوت: ${if (device.supportsVolumeControl) "مدعوم" else "غير متوفر"}")
+        }
+        status.text = "تم اختيار ${device.name}"
     }
 
     private fun testDevice(device: CastDevice) {
@@ -263,18 +284,43 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pausePlayback() {
-        val device = selectedDevice ?: return
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
+        }
         lifecycleScope.launch { status.text = mediaSender.pause(device) }
     }
 
     private fun resumePlayback() {
-        val device = selectedDevice ?: return
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
+        }
         lifecycleScope.launch { status.text = mediaSender.resume(device) }
     }
 
     private fun stopPlayback() {
-        val device = selectedDevice ?: return
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
+        }
         lifecycleScope.launch { status.text = mediaSender.stop(device) }
+    }
+
+    private fun changeVolume(delta: Int) {
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
+        }
+        if (!device.supportsVolumeControl) {
+            status.text = "الجهاز لا يعلن عن دعم التحكم بالصوت عبر DLNA."
+            return
+        }
+        currentVolume = (currentVolume + delta).coerceIn(0, 100)
+        volumeView.text = "الصوت: $currentVolume%"
+        lifecycleScope.launch {
+            status.text = mediaSender.setVolume(device, currentVolume)
+        }
     }
 
     private fun clearQueue() {
