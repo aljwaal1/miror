@@ -28,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var queueView: TextView
     private lateinit var selectedDeviceView: TextView
     private lateinit var volumeView: TextView
+    private lateinit var debugView: TextView
     private var selectedDevice: CastDevice? = null
     private val queue = mutableListOf<Uri>()
     private var queueIndex = -1
@@ -135,6 +136,14 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 20, 0, 18)
         }
 
+        debugView = TextView(this).apply {
+            text = "التشخيص: لم يتم إرسال ملف بعد"
+            textSize = 13f
+            setTextColor(0xFFFDE68A.toInt())
+            setPadding(16, 16, 16, 16)
+            setBackgroundColor(0xFF1E293B.toInt())
+        }
+
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
         root.addView(selectedDeviceView)
@@ -142,7 +151,12 @@ class MainActivity : AppCompatActivity() {
         root.addView(row1)
         root.addView(row2)
         root.addView(volumeRow)
+        root.addView(Button(this).apply {
+            text = "تحديث التشخيص"
+            setOnClickListener { refreshDiagnostics() }
+        })
         root.addView(status)
+        root.addView(debugView)
         root.addView(list)
         return ScrollView(this).apply { addView(root) }
     }
@@ -268,6 +282,7 @@ class MainActivity : AppCompatActivity() {
             val result = mediaSender.prepareSend(device, uri)
             status.text = result.arabicSummary
             updateQueueStatus()
+            refreshDiagnostics()
         }
     }
 
@@ -328,6 +343,7 @@ class MainActivity : AppCompatActivity() {
         queueIndex = -1
         mediaSender.stopLocalServer()
         updateQueueStatus()
+        refreshDiagnostics()
         status.text = "تم مسح قائمة التشغيل."
     }
 
@@ -337,5 +353,9 @@ class MainActivity : AppCompatActivity() {
         } else {
             "قائمة التشغيل: ${queue.size} ملفات — الحالي ${queueIndex + 1}"
         }
+    }
+
+    private fun refreshDiagnostics() {
+        debugView.text = mediaSender.diagnosticsSummary()
     }
 }
