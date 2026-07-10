@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var selectedDeviceView: TextView
     private lateinit var volumeView: TextView
     private lateinit var debugView: TextView
+    private lateinit var mirroringInfoView: TextView
     private var selectedDevice: CastDevice? = null
     private val queue = mutableListOf<Uri>()
     private var queueIndex = -1
@@ -92,17 +93,18 @@ class MainActivity : AppCompatActivity() {
             text = "2) فتح مرآة الشاشة / AnyView"
             setOnClickListener { openScreenMirroring() }
         })
-        modeRow.addView(TextView(this).apply {
-            text = if (mirroringLauncher.isMirroringSettingsAvailable()) {
-                "الهاتف يوفر صفحة مشاركة شاشة يمكن فتحها من التطبيق."
-            } else {
-                "لم يتم العثور على صفحة مرآة مباشرة؛ سيحاول التطبيق فتح أقرب إعداد لاسلكي متاح."
-            }
+        modeRow.addView(Button(this).apply {
+            text = "3) فتح Wi‑Fi Direct"
+            setOnClickListener { openWifiDirect() }
+        })
+        mirroringInfoView = TextView(this).apply {
+            text = mirroringLauncher.availabilitySummary()
             textSize = 13f
             setTextColor(0xFFFDE68A.toInt())
             gravity = Gravity.CENTER
             setPadding(8, 8, 8, 12)
-        })
+        }
+        modeRow.addView(mirroringInfoView)
         root.addView(modeRow)
 
         selectedDeviceView = TextView(this).apply {
@@ -193,6 +195,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun openScreenMirroring() {
         val result = mirroringLauncher.openBestAvailable()
+        mirroringInfoView.text = mirroringLauncher.availabilitySummary()
+        status.text = result.message
+    }
+
+    private fun openWifiDirect() {
+        val result = mirroringLauncher.openWifiDirect()
+        mirroringInfoView.text = mirroringLauncher.availabilitySummary()
         status.text = result.message
     }
 
