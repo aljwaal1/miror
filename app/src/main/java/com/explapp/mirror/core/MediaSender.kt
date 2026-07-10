@@ -79,6 +79,22 @@ class MediaSender(private val context: Context) {
         )
     }
 
+    suspend fun pause(device: CastDevice): String {
+        return dlnaController.pause(device).message
+    }
+
+    suspend fun resume(device: CastDevice): String {
+        return dlnaController.resume(device).message
+    }
+
+    suspend fun stop(device: CastDevice): String {
+        return dlnaController.stop(device).message
+    }
+
+    fun stopLocalServer() {
+        localMediaServer.stop()
+    }
+
     private fun chooseRoute(device: CastDevice): MediaRoute {
         val servicesText = device.services.joinToString(" ").lowercase()
         return when {
