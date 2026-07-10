@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             val imageButton = Button(this).apply {
-                text = "اختيار صورة"
+                text = "اختيار صورة وتشغيل"
                 setOnClickListener {
                     selectedDevice = device
                     imagePicker.launch("image/*")
@@ -136,17 +136,35 @@ class MainActivity : AppCompatActivity() {
             }
 
             val videoButton = Button(this).apply {
-                text = "اختيار فيديو"
+                text = "اختيار فيديو وتشغيل"
                 setOnClickListener {
                     selectedDevice = device
                     videoPicker.launch("video/*")
                 }
             }
 
+            val pauseButton = Button(this).apply {
+                text = "إيقاف مؤقت"
+                setOnClickListener { controlDevice(device, ControlAction.PAUSE) }
+            }
+
+            val resumeButton = Button(this).apply {
+                text = "استئناف"
+                setOnClickListener { controlDevice(device, ControlAction.RESUME) }
+            }
+
+            val stopButton = Button(this).apply {
+                text = "إيقاف"
+                setOnClickListener { controlDevice(device, ControlAction.STOP) }
+            }
+
             container.addView(item)
             container.addView(testButton)
             container.addView(imageButton)
             container.addView(videoButton)
+            container.addView(pauseButton)
+            container.addView(resumeButton)
+            container.addView(stopButton)
 
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -177,4 +195,26 @@ class MainActivity : AppCompatActivity() {
             status.text = result.arabicSummary
         }
     }
+
+    private fun controlDevice(device: CastDevice, action: ControlAction) {
+        status.text = "جاري إرسال أمر التحكم إلى ${device.ipAddress}..."
+        lifecycleScope.launch {
+            val message = when (action) {
+                ControlAction.PAUSE -> mediaSender.pause(device)
+                ControlAction.RESUME -> mediaSender.resume(device)
+                ControlAction.STOP -> {
+                    val result = mediaSender.stop(device)
+                    mediaSender.stopLocalServer()
+                    result
+                }
+            }
+            status.text = message
+        }
+    }
+}
+
+private enum class ControlAction {
+    PAUSE,
+    RESUME,
+    STOP
 }
