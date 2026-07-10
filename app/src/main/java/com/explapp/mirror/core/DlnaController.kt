@@ -3,117 +3,84 @@ package com.explapp.mirror.core
 import com.explapp.mirror.model.CastDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.w3c.dom.Element
-import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import javax.xml.parsers.DocumentBuilderFactory
 
 class DlnaController {
     suspend fun play(device: CastDevice, mediaUrl: String, mimeType: String): DlnaControlResult = withContext(Dispatchers.IO) {
-        val controlUrl = findControlUrl(device)
-            ?: return@withContext DlnaControlResult(false, "لم يتم العثور على خدمة AVTransport داخل وصف الجهاز.")
+        val controlUrl = device.avTransportControlUrl
+            ?: return@withContext DlnaControlResult(false, "الجهاز لا يعلن عن خدمة AVTransport.")
 
-        val setUriOk = postSoap(
-            controlUrl = controlUrl,
-            soapAction = "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
-            body = setUriBody(mediaUrl, mimeType)
+        val setUri = postSoap(
+            controlUrl,
+            "urn:schemas-upnp-org:service:AVTransport:1#SetAVTransportURI",
+            setUriBody(mediaUrl, mimeType)
         )
+        if (!setUri.success) return@withContext setUri
 
-        if (!setUriOk) {
-            return@withContext DlnaControlResult(false, "تم العثور على DLNA لكن فشل إرسال رابط الملف للتلفاز.")
-        }
-
-        val playOk = sendTransportAction(controlUrl, "Play", includeSpeed = true)
-        if (playOk) {
-            DlnaControlResult(true, "تم إرسال أمر تشغيل DLNA للتلفاز.")
-        } else {
-            DlnaControlResult(false, "تم إرسال رابط الملف، لكن فشل أمر التشغيل.")
-        }
+        sendTransportAction(controlUrl, "Play", includeSpeed = true)
     }
 
-    suspend fun resume(device: CastDevice): DlnaControlResult = control(device, "Play", "تم إرسال أمر استئناف التشغيل.", includeSpeed = true)
+    suspend fun resume(device: CastDevice): DlnaControlResult = transport(device, "Play", true)
+    suspend fun pause(device: CastDevice): DlnaControlResult = transport(device, "Pause")
+    suspend fun stop(device: CastDevice): DlnaControlResult = transport(device, "Stop")
 
-    suspend fun pause(device: CastDevice): DlnaControlResult = control(device, "Pause", "تم إرسال أمر الإيقاف المؤقت.")
+    suspend fun setVolume(device: CastDevice, volume: Int): DlnaControlResult = withContext(Dispatchers.IO) {
+        val controlUrl = device.renderingControlUrl
+            ?: return@withContext DlnaControlResult(false, "الجهاز لا يدعم التحكم بالصوت عبر DLNA.")
+        val safeVolume = volume.coerceIn(0, 100)
+        postSoap(
+            controlUrl,
+            "urn:schemas-upnp-org:service:RenderingControl:1#SetVolume",
+            volumeBody(safeVolume)
+        )
+    }
 
-    suspend fun stop(device: CastDevice): DlnaControlResult = control(device, "Stop", "تم إرسال أمر إيقاف التشغيل.")
-
-    private suspend fun control(
+    private suspend fun transport(
         device: CastDevice,
         action: String,
-        successMessage: String,
         includeSpeed: Boolean = false
     ): DlnaControlResult = withContext(Dispatchers.IO) {
-        val controlUrl = findControlUrl(device)
-            ?: return@withContext DlnaControlResult(false, "لم يتم العثور على خدمة AVTransport داخل وصف الجهاز.")
-
-        val ok = sendTransportAction(controlUrl, action, includeSpeed)
-        if (ok) DlnaControlResult(true, successMessage) else DlnaControlResult(false, "فشل إرسال أمر $action للجهاز.")
+        val controlUrl = device.avTransportControlUrl
+            ?: return@withContext DlnaControlResult(false, "الجهاز لا يعلن عن خدمة AVTransport.")
+        sendTransportAction(controlUrl, action, includeSpeed)
     }
 
-    private fun findControlUrl(device: CastDevice): String? {
-        val locationUrl = device.services.firstOrNull { it.startsWith("http", ignoreCase = true) } ?: return null
-        return runCatching { discoverAvTransportControlUrl(locationUrl) }.getOrNull()
-    }
-
-    private fun discoverAvTransportControlUrl(locationUrl: String): String? {
-        val xml = URL(locationUrl).readText()
-        val document = DocumentBuilderFactory.newInstance()
-            .newDocumentBuilder()
-            .parse(ByteArrayInputStream(xml.toByteArray()))
-
-        val services = document.getElementsByTagName("service")
-        for (i in 0 until services.length) {
-            val service = services.item(i) as? Element ?: continue
-            val serviceType = childText(service, "serviceType").orEmpty()
-            if (serviceType.contains("AVTransport", ignoreCase = true)) {
-                val control = childText(service, "controlURL") ?: return null
-                return URL(URL(locationUrl), control).toString()
-            }
-        }
-        return null
-    }
-
-    private fun childText(parent: Element, tag: String): String? {
-        val nodes = parent.getElementsByTagName(tag)
-        if (nodes.length == 0) return null
-        return nodes.item(0)?.textContent?.trim()?.takeIf { it.isNotBlank() }
-    }
-
-    private fun sendTransportAction(controlUrl: String, action: String, includeSpeed: Boolean = false): Boolean {
+    private fun sendTransportAction(controlUrl: String, action: String, includeSpeed: Boolean = false): DlnaControlResult {
         return postSoap(
-            controlUrl = controlUrl,
-            soapAction = "urn:schemas-upnp-org:service:AVTransport:1#$action",
-            body = transportActionBody(action, includeSpeed)
+            controlUrl,
+            "urn:schemas-upnp-org:service:AVTransport:1#$action",
+            transportActionBody(action, includeSpeed)
         )
     }
 
-    private fun postSoap(controlUrl: String, soapAction: String, body: String): Boolean {
+    private fun postSoap(controlUrl: String, soapAction: String, body: String): DlnaControlResult {
         val connection = (URL(controlUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 2500
-            readTimeout = 3500
+            readTimeout = 4000
             doOutput = true
             setRequestProperty("Content-Type", "text/xml; charset=utf-8")
             setRequestProperty("SOAPAction", "\"$soapAction\"")
         }
 
         return runCatching {
-            connection.outputStream.use { output ->
-                output.write(body.toByteArray(Charsets.UTF_8))
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code in 200..299) {
+                DlnaControlResult(true, "تم تنفيذ الأمر بنجاح.", code, response)
+            } else {
+                DlnaControlResult(false, "رفض الجهاز الأمر. HTTP $code", code, response)
             }
-            connection.responseCode in 200..299
-        }.getOrDefault(false).also {
-            connection.disconnect()
-        }
+        }.getOrElse {
+            DlnaControlResult(false, "تعذر الاتصال بخدمة DLNA: ${it.message.orEmpty()}")
+        }.also { connection.disconnect() }
     }
 
     private fun setUriBody(mediaUrl: String, mimeType: String): String {
-        val escapedUrl = mediaUrl
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-
+        val escapedUrl = escapeXml(mediaUrl)
         return """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
@@ -137,9 +104,27 @@ class DlnaController {
   </s:Body>
 </s:Envelope>"""
     }
+
+    private fun volumeBody(volume: Int): String = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:SetVolume xmlns:u="urn:schemas-upnp-org:service:RenderingControl:1">
+      <InstanceID>0</InstanceID>
+      <Channel>Master</Channel>
+      <DesiredVolume>$volume</DesiredVolume>
+    </u:SetVolume>
+  </s:Body>
+</s:Envelope>"""
+
+    private fun escapeXml(value: String): String = value
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
 }
 
 data class DlnaControlResult(
     val success: Boolean,
-    val message: String
+    val message: String,
+    val httpCode: Int? = null,
+    val responseBody: String = ""
 )
