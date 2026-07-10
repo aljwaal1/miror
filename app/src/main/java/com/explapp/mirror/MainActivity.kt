@@ -24,14 +24,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scanner: NetworkScanner
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
+    private lateinit var queueView: TextView
     private var selectedDevice: CastDevice? = null
+    private val queue = mutableListOf<Uri>()
+    private var queueIndex = -1
 
-    private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { handlePickedMedia(it) }
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        addToQueue(uris)
     }
 
-    private val videoPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        uri?.let { handlePickedMedia(it) }
+    private val videoPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        addToQueue(uris)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,6 +42,11 @@ class MainActivity : AppCompatActivity() {
         scanner = NetworkScanner(this)
         mediaSender = MediaSender(this)
         setContentView(createMainView())
+    }
+
+    override fun onDestroy() {
+        mediaSender.stopLocalServer()
+        super.onDestroy()
     }
 
     private fun createMainView(): ScrollView {
@@ -57,34 +65,61 @@ class MainActivity : AppCompatActivity() {
         }
 
         val subtitle = TextView(this).apply {
-            text = "اكتشاف الشاشات وإرسال الصور والفيديوهات"
+            text = "اكتشاف الشاشات وإرسال صور وفيديوهات متعددة"
             textSize = 16f
             setTextColor(0xFFCBD5E1.toInt())
             gravity = Gravity.CENTER
-            setPadding(0, 12, 0, 28)
+            setPadding(0, 12, 0, 24)
         }
 
         val scanButton = Button(this).apply {
             text = "بحث عن الأجهزة"
+            setOnClickListener { startScan() }
         }
+
+        queueView = TextView(this).apply {
+            text = "قائمة التشغيل: فارغة"
+            textSize = 14f
+            setTextColor(0xFFCBD5E1.toInt())
+            setPadding(0, 18, 0, 8)
+        }
+
+        val controls = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        controls.addView(Button(this).apply {
+            text = "السابق"
+            setOnClickListener { playPrevious() }
+        })
+        controls.addView(Button(this).apply {
+            text = "تشغيل"
+            setOnClickListener { playCurrent() }
+        })
+        controls.addView(Button(this).apply {
+            text = "التالي"
+            setOnClickListener { playNext() }
+        })
+        controls.addView(Button(this).apply {
+            text = "إيقاف"
+            setOnClickListener { stopPlayback() }
+        })
 
         status = TextView(this).apply {
             text = "الحالة: جاهز للبحث"
             textSize = 15f
             setTextColor(0xFF5EEAD4.toInt())
             gravity = Gravity.CENTER
-            setPadding(0, 24, 0, 18)
+            setPadding(0, 20, 0, 18)
         }
 
-        list = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        scanButton.setOnClickListener { startScan() }
+        list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
 
         root.addView(title)
         root.addView(subtitle)
         root.addView(scanButton)
+        root.addView(queueView)
+        root.addView(controls)
         root.addView(status)
         root.addView(list)
         return ScrollView(this).apply { addView(root) }
@@ -122,49 +157,40 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(0xFFF8FAFC.toInt())
             }
 
+            val selectButton = Button(this).apply {
+                text = "اتصال واختيار الجهاز"
+                setOnClickListener {
+                    selectedDevice = device
+                    status.text = "تم اختيار ${device.name}"
+                }
+            }
+
             val testButton = Button(this).apply {
                 text = "اختبار الاتصال"
                 setOnClickListener { testDevice(device) }
             }
 
             val imageButton = Button(this).apply {
-                text = "اختيار صورة وتشغيل"
+                text = "اختيار عدة صور"
                 setOnClickListener {
                     selectedDevice = device
-                    imagePicker.launch("image/*")
+                    imagePicker.launch(arrayOf("image/*"))
                 }
             }
 
             val videoButton = Button(this).apply {
-                text = "اختيار فيديو وتشغيل"
+                text = "اختيار عدة فيديوهات"
                 setOnClickListener {
                     selectedDevice = device
-                    videoPicker.launch("video/*")
+                    videoPicker.launch(arrayOf("video/*"))
                 }
             }
 
-            val pauseButton = Button(this).apply {
-                text = "إيقاف مؤقت"
-                setOnClickListener { controlDevice(device, ControlAction.PAUSE) }
-            }
-
-            val resumeButton = Button(this).apply {
-                text = "استئناف"
-                setOnClickListener { controlDevice(device, ControlAction.RESUME) }
-            }
-
-            val stopButton = Button(this).apply {
-                text = "إيقاف"
-                setOnClickListener { controlDevice(device, ControlAction.STOP) }
-            }
-
             container.addView(item)
+            container.addView(selectButton)
             container.addView(testButton)
             container.addView(imageButton)
             container.addView(videoButton)
-            container.addView(pauseButton)
-            container.addView(resumeButton)
-            container.addView(stopButton)
 
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -182,39 +208,57 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun handlePickedMedia(uri: Uri) {
+    private fun addToQueue(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        queue.addAll(uris)
+        if (queueIndex < 0) queueIndex = 0
+        updateQueueStatus()
+        playCurrent()
+    }
+
+    private fun playCurrent() {
         val device = selectedDevice
         if (device == null) {
-            status.text = "اختر جهازًا أولًا قبل اختيار الملف."
+            status.text = "اختر شاشة أولًا."
             return
         }
-
-        status.text = "جاري تجهيز الملف للإرسال إلى ${device.ipAddress}..."
+        if (queueIndex !in queue.indices) {
+            status.text = "اختر صورًا أو فيديوهات أولًا."
+            return
+        }
+        val uri = queue[queueIndex]
+        status.text = "جاري إرسال الملف ${queueIndex + 1} من ${queue.size} إلى ${device.name}..."
         lifecycleScope.launch {
             val result = mediaSender.prepareSend(device, uri)
             status.text = result.arabicSummary
+            updateQueueStatus()
         }
     }
 
-    private fun controlDevice(device: CastDevice, action: ControlAction) {
-        status.text = "جاري إرسال أمر التحكم إلى ${device.ipAddress}..."
+    private fun playNext() {
+        if (queue.isEmpty()) return
+        queueIndex = (queueIndex + 1) % queue.size
+        playCurrent()
+    }
+
+    private fun playPrevious() {
+        if (queue.isEmpty()) return
+        queueIndex = (queueIndex - 1 + queue.size) % queue.size
+        playCurrent()
+    }
+
+    private fun stopPlayback() {
+        val device = selectedDevice ?: return
         lifecycleScope.launch {
-            val message = when (action) {
-                ControlAction.PAUSE -> mediaSender.pause(device)
-                ControlAction.RESUME -> mediaSender.resume(device)
-                ControlAction.STOP -> {
-                    val result = mediaSender.stop(device)
-                    mediaSender.stopLocalServer()
-                    result
-                }
-            }
-            status.text = message
+            status.text = mediaSender.stop(device)
         }
     }
-}
 
-private enum class ControlAction {
-    PAUSE,
-    RESUME,
-    STOP
+    private fun updateQueueStatus() {
+        queueView.text = if (queue.isEmpty()) {
+            "قائمة التشغيل: فارغة"
+        } else {
+            "قائمة التشغيل: ${queue.size} ملفات — الحالي ${queueIndex + 1}"
+        }
+    }
 }
