@@ -16,6 +16,7 @@ import kotlin.concurrent.thread
 class LocalMediaServer(private val context: Context) {
     private var serverSocket: ServerSocket? = null
     private var sharedMedia: SharedMedia? = null
+    private val diagnostics = LocalMediaServerDiagnostics()
 
     @Synchronized
     fun start(mediaUri: Uri, mimeType: String): LocalMediaServerResult {
@@ -30,15 +31,18 @@ class LocalMediaServer(private val context: Context) {
         )
         serverSocket = socket
 
+        val host = findLocalIpv4Address() ?: "127.0.0.1"
+        val url = "http://$host:$port/media"
+        diagnostics.reset(url)
+
         thread(start = true, isDaemon = true, name = "ExplAppMirrorMediaServer") {
             serve(socket)
         }
 
-        val host = findLocalIpv4Address() ?: "127.0.0.1"
         return LocalMediaServerResult(
             host = host,
             port = port,
-            url = "http://$host:$port/media",
+            url = url,
             mimeType = sharedMedia?.mimeType ?: "application/octet-stream",
             size = sharedMedia?.size ?: -1L
         )
@@ -51,11 +55,15 @@ class LocalMediaServer(private val context: Context) {
         sharedMedia = null
     }
 
+    fun diagnosticsSnapshot(): LocalMediaServerDiagnosticsSnapshot {
+        return diagnostics.snapshot()
+    }
+
     private fun serve(socket: ServerSocket) {
         while (!socket.isClosed) {
             val client = runCatching { socket.accept() }.getOrNull() ?: break
             thread(start = true, isDaemon = true, name = "ExplAppMirrorMediaClient") {
-                handleClient(client)
+                runCatching { handleClient(client) }.onFailure { diagnostics.recordError(it.message.orEmpty()) }
             }
         }
     }
@@ -63,8 +71,10 @@ class LocalMediaServer(private val context: Context) {
     private fun handleClient(client: Socket) {
         client.use { socket ->
             val media = sharedMedia ?: return
+            val clientIp = socket.inetAddress?.hostAddress.orEmpty()
             val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
             val requestLine = reader.readLine().orEmpty()
+            val path = requestLine.split(" ").getOrNull(1).orEmpty()
             val headers = mutableMapOf<String, String>()
 
             while (true) {
@@ -76,19 +86,23 @@ class LocalMediaServer(private val context: Context) {
             }
 
             val method = requestLine.substringBefore(" ").uppercase()
+            val rangeHeader = headers["range"].orEmpty()
+            diagnostics.recordRequest(clientIp, method, path, rangeHeader)
             val output = socket.getOutputStream()
 
             if (method != "GET" && method != "HEAD") {
                 output.write("HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n".toByteArray())
                 output.flush()
+                diagnostics.recordResponse(405, 0)
                 return
             }
 
-            val range = parseRange(headers["range"], media.size)
+            val range = parseRange(rangeHeader, media.size)
             val partial = range != null
             val start = range?.first ?: 0L
             val end = range?.second ?: ((media.size - 1).coerceAtLeast(0L))
             val contentLength = if (media.size > 0) (end - start + 1).coerceAtLeast(0L) else -1L
+            val statusCode = if (partial) 206 else 200
 
             val responseHeaders = buildString {
                 append(if (partial) "HTTP/1.1 206 Partial Content\r\n" else "HTTP/1.1 200 OK\r\n")
@@ -102,10 +116,11 @@ class LocalMediaServer(private val context: Context) {
             }
             output.write(responseHeaders.toByteArray())
 
+            var bytesSent = 0L
             if (method == "GET") {
                 context.contentResolver.openInputStream(media.uri)?.use { input ->
                     skipFully(input, start)
-                    if (contentLength >= 0) {
+                    bytesSent = if (contentLength >= 0) {
                         copyLimited(input, output, contentLength)
                     } else {
                         input.copyTo(output)
@@ -113,6 +128,7 @@ class LocalMediaServer(private val context: Context) {
                 }
             }
             output.flush()
+            diagnostics.recordResponse(statusCode, bytesSent)
         }
     }
 
@@ -139,15 +155,18 @@ class LocalMediaServer(private val context: Context) {
         }
     }
 
-    private fun copyLimited(input: InputStream, output: java.io.OutputStream, limit: Long) {
+    private fun copyLimited(input: InputStream, output: java.io.OutputStream, limit: Long): Long {
         val buffer = ByteArray(64 * 1024)
         var remaining = limit
+        var total = 0L
         while (remaining > 0) {
             val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
             if (read < 0) break
             output.write(buffer, 0, read)
             remaining -= read
+            total += read
         }
+        return total
     }
 
     private fun querySize(uri: Uri): Long {
@@ -177,6 +196,91 @@ data class LocalMediaServerResult(
     val mimeType: String,
     val size: Long
 )
+
+data class LocalMediaServerDiagnosticsSnapshot(
+    val serverUrl: String,
+    val requestCount: Int,
+    val lastClientIp: String,
+    val lastMethod: String,
+    val lastPath: String,
+    val lastRange: String,
+    val lastStatusCode: Int,
+    val lastBytesSent: Long,
+    val lastError: String
+) {
+    val arabicSummary: String
+        get() = buildString {
+            append("تشخيص الخادم المحلي\n")
+            append("الرابط: ${serverUrl.ifBlank { "غير جاهز" }}\n")
+            append("عدد طلبات التلفاز/الأجهزة: $requestCount\n")
+            append("آخر IP طلب الملف: ${lastClientIp.ifBlank { "لا يوجد" }}\n")
+            append("آخر طلب: ${lastMethod.ifBlank { "لا يوجد" }} ${lastPath.ifBlank { "" }}\n")
+            append("آخر Range: ${lastRange.ifBlank { "لا يوجد" }}\n")
+            append("آخر HTTP: ${if (lastStatusCode == 0) "لا يوجد" else lastStatusCode}\n")
+            append("آخر حجم أرسل: $lastBytesSent bytes")
+            if (lastError.isNotBlank()) append("\nآخر خطأ: $lastError")
+        }
+}
+
+private class LocalMediaServerDiagnostics {
+    private var serverUrl: String = ""
+    private var requestCount: Int = 0
+    private var lastClientIp: String = ""
+    private var lastMethod: String = ""
+    private var lastPath: String = ""
+    private var lastRange: String = ""
+    private var lastStatusCode: Int = 0
+    private var lastBytesSent: Long = 0L
+    private var lastError: String = ""
+
+    @Synchronized
+    fun reset(url: String) {
+        serverUrl = url
+        requestCount = 0
+        lastClientIp = ""
+        lastMethod = ""
+        lastPath = ""
+        lastRange = ""
+        lastStatusCode = 0
+        lastBytesSent = 0L
+        lastError = ""
+    }
+
+    @Synchronized
+    fun recordRequest(clientIp: String, method: String, path: String, range: String) {
+        requestCount += 1
+        lastClientIp = clientIp
+        lastMethod = method
+        lastPath = path
+        lastRange = range
+    }
+
+    @Synchronized
+    fun recordResponse(statusCode: Int, bytesSent: Long) {
+        lastStatusCode = statusCode
+        lastBytesSent = bytesSent
+    }
+
+    @Synchronized
+    fun recordError(message: String) {
+        lastError = message
+    }
+
+    @Synchronized
+    fun snapshot(): LocalMediaServerDiagnosticsSnapshot {
+        return LocalMediaServerDiagnosticsSnapshot(
+            serverUrl = serverUrl,
+            requestCount = requestCount,
+            lastClientIp = lastClientIp,
+            lastMethod = lastMethod,
+            lastPath = lastPath,
+            lastRange = lastRange,
+            lastStatusCode = lastStatusCode,
+            lastBytesSent = lastBytesSent,
+            lastError = lastError
+        )
+    }
+}
 
 private data class SharedMedia(
     val uri: Uri,
