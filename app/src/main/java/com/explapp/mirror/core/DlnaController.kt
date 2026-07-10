@@ -11,10 +11,7 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 class DlnaController {
     suspend fun play(device: CastDevice, mediaUrl: String, mimeType: String): DlnaControlResult = withContext(Dispatchers.IO) {
-        val locationUrl = device.services.firstOrNull { it.startsWith("http", ignoreCase = true) }
-            ?: return@withContext DlnaControlResult(false, "لم يتم العثور على رابط وصف DLNA للجهاز.")
-
-        val controlUrl = runCatching { discoverAvTransportControlUrl(locationUrl) }.getOrNull()
+        val controlUrl = findControlUrl(device)
             ?: return@withContext DlnaControlResult(false, "لم يتم العثور على خدمة AVTransport داخل وصف الجهاز.")
 
         val setUriOk = postSoap(
@@ -27,17 +24,36 @@ class DlnaController {
             return@withContext DlnaControlResult(false, "تم العثور على DLNA لكن فشل إرسال رابط الملف للتلفاز.")
         }
 
-        val playOk = postSoap(
-            controlUrl = controlUrl,
-            soapAction = "urn:schemas-upnp-org:service:AVTransport:1#Play",
-            body = playBody()
-        )
-
+        val playOk = sendTransportAction(controlUrl, "Play", includeSpeed = true)
         if (playOk) {
             DlnaControlResult(true, "تم إرسال أمر تشغيل DLNA للتلفاز.")
         } else {
             DlnaControlResult(false, "تم إرسال رابط الملف، لكن فشل أمر التشغيل.")
         }
+    }
+
+    suspend fun resume(device: CastDevice): DlnaControlResult = control(device, "Play", "تم إرسال أمر استئناف التشغيل.", includeSpeed = true)
+
+    suspend fun pause(device: CastDevice): DlnaControlResult = control(device, "Pause", "تم إرسال أمر الإيقاف المؤقت.")
+
+    suspend fun stop(device: CastDevice): DlnaControlResult = control(device, "Stop", "تم إرسال أمر إيقاف التشغيل.")
+
+    private suspend fun control(
+        device: CastDevice,
+        action: String,
+        successMessage: String,
+        includeSpeed: Boolean = false
+    ): DlnaControlResult = withContext(Dispatchers.IO) {
+        val controlUrl = findControlUrl(device)
+            ?: return@withContext DlnaControlResult(false, "لم يتم العثور على خدمة AVTransport داخل وصف الجهاز.")
+
+        val ok = sendTransportAction(controlUrl, action, includeSpeed)
+        if (ok) DlnaControlResult(true, successMessage) else DlnaControlResult(false, "فشل إرسال أمر $action للجهاز.")
+    }
+
+    private fun findControlUrl(device: CastDevice): String? {
+        val locationUrl = device.services.firstOrNull { it.startsWith("http", ignoreCase = true) } ?: return null
+        return runCatching { discoverAvTransportControlUrl(locationUrl) }.getOrNull()
     }
 
     private fun discoverAvTransportControlUrl(locationUrl: String): String? {
@@ -62,6 +78,14 @@ class DlnaController {
         val nodes = parent.getElementsByTagName(tag)
         if (nodes.length == 0) return null
         return nodes.item(0)?.textContent?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun sendTransportAction(controlUrl: String, action: String, includeSpeed: Boolean = false): Boolean {
+        return postSoap(
+            controlUrl = controlUrl,
+            soapAction = "urn:schemas-upnp-org:service:AVTransport:1#$action",
+            body = transportActionBody(action, includeSpeed)
+        )
     }
 
     private fun postSoap(controlUrl: String, soapAction: String, body: String): Boolean {
@@ -90,32 +114,28 @@ class DlnaController {
             .replace("<", "&lt;")
             .replace(">", "&gt;")
 
-        return """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <CurrentURI>$escapedUrl</CurrentURI>
-                  <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"&gt;&lt;item id="1" parentID="0" restricted="1"&gt;&lt;dc:title&gt;ExplApp Mirror&lt;/dc:title&gt;&lt;res protocolInfo="http-get:*:$mimeType:*"&gt;$escapedUrl&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
-                </u:SetAVTransportURI>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+        return """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <CurrentURI>$escapedUrl</CurrentURI>
+      <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"&gt;&lt;item id="1" parentID="0" restricted="1"&gt;&lt;dc:title&gt;ExplApp Mirror&lt;/dc:title&gt;&lt;res protocolInfo="http-get:*:$mimeType:*"&gt;$escapedUrl&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+    </u:SetAVTransportURI>
+  </s:Body>
+</s:Envelope>"""
     }
 
-    private fun playBody(): String {
-        return """
-            <?xml version="1.0" encoding="utf-8"?>
-            <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-              <s:Body>
-                <u:Play xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-                  <InstanceID>0</InstanceID>
-                  <Speed>1</Speed>
-                </u:Play>
-              </s:Body>
-            </s:Envelope>
-        """.trimIndent()
+    private fun transportActionBody(action: String, includeSpeed: Boolean): String {
+        val speed = if (includeSpeed) "\n      <Speed>1</Speed>" else ""
+        return """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:$action xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>$speed
+    </u:$action>
+  </s:Body>
+</s:Envelope>"""
     }
 }
 
