@@ -9,9 +9,7 @@ class KnownDevicesStore(context: Context) {
         Context.MODE_PRIVATE
     )
 
-    fun getSavedProfileId(device: CastDevice): String? {
-        return prefs.getString(profileKey(device), null)
-    }
+    fun getSavedProfileId(device: CastDevice): String? = prefs.getString(profileKey(device), null)
 
     fun recordSuccess(device: CastDevice, profileId: String) {
         val key = deviceKey(device)
@@ -33,17 +31,43 @@ class KnownDevicesStore(context: Context) {
             .apply()
     }
 
-    fun summary(device: CastDevice): String {
+    fun resetProfile(device: CastDevice) {
+        prefs.edit()
+            .remove(profileKey(device))
+            .remove("${deviceKey(device)}_last_error")
+            .apply()
+    }
+
+    fun clearDeviceHistory(device: CastDevice) {
         val key = deviceKey(device)
-        val profile = prefs.getString(profileKey(device), null) ?: "غير محفوظ"
-        val success = prefs.getInt("${key}_success", 0)
-        val failure = prefs.getInt("${key}_failure", 0)
-        val error = prefs.getString("${key}_last_error", "").orEmpty()
+        prefs.edit()
+            .remove(profileKey(device))
+            .remove("${key}_last_success")
+            .remove("${key}_success")
+            .remove("${key}_failure")
+            .remove("${key}_last_error")
+            .apply()
+    }
+
+    fun stats(device: CastDevice): DeviceCompatibilityStats {
+        val key = deviceKey(device)
+        return DeviceCompatibilityStats(
+            profileId = prefs.getString(profileKey(device), null),
+            successes = prefs.getInt("${key}_success", 0),
+            failures = prefs.getInt("${key}_failure", 0),
+            lastSuccessTime = prefs.getLong("${key}_last_success", 0L),
+            lastError = prefs.getString("${key}_last_error", "").orEmpty()
+        )
+    }
+
+    fun summary(device: CastDevice): String {
+        val stats = stats(device)
         return buildString {
-            append("الوضع المحفوظ: $profile\n")
-            append("مرات النجاح: $success\n")
-            append("مرات الفشل: $failure")
-            if (error.isNotBlank()) append("\nآخر خطأ: $error")
+            append("الوضع المحفوظ: ${stats.profileId ?: "غير محفوظ"}\n")
+            append("مرات النجاح: ${stats.successes}\n")
+            append("مرات الفشل: ${stats.failures}")
+            if (stats.lastSuccessTime > 0) append("\nآخر نجاح: ${stats.lastSuccessTime}")
+            if (stats.lastError.isNotBlank()) append("\nآخر خطأ: ${stats.lastError}")
         }
     }
 
@@ -54,3 +78,11 @@ class KnownDevicesStore(context: Context) {
         return raw.replace(Regex("[^A-Za-z0-9_.-]"), "_")
     }
 }
+
+data class DeviceCompatibilityStats(
+    val profileId: String?,
+    val successes: Int,
+    val failures: Int,
+    val lastSuccessTime: Long,
+    val lastError: String
+)
