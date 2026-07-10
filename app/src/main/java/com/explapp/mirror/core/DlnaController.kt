@@ -81,13 +81,38 @@ class DlnaController {
 
     private fun setUriBody(mediaUrl: String, mimeType: String): String {
         val escapedUrl = escapeXml(mediaUrl)
+        val safeMimeType = mimeType.ifBlank { "application/octet-stream" }
+        val upnpClass = when {
+            safeMimeType.startsWith("image/") -> "object.item.imageItem.photo"
+            safeMimeType.startsWith("video/") -> "object.item.videoItem"
+            safeMimeType.startsWith("audio/") -> "object.item.audioItem.musicTrack"
+            else -> "object.item"
+        }
+        val title = when {
+            safeMimeType.startsWith("image/") -> "ExplApp Mirror Photo"
+            safeMimeType.startsWith("video/") -> "ExplApp Mirror Video"
+            else -> "ExplApp Mirror Media"
+        }
+        val metadata = """
+            <DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">
+              <item id="1" parentID="0" restricted="1">
+                <dc:title>$title</dc:title>
+                <upnp:class>$upnpClass</upnp:class>
+                <res protocolInfo="http-get:*:$safeMimeType:*">$escapedUrl</res>
+              </item>
+            </DIDL-Lite>
+        """.trimIndent()
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+
         return """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
   <s:Body>
     <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
       <InstanceID>0</InstanceID>
       <CurrentURI>$escapedUrl</CurrentURI>
-      <CurrentURIMetaData>&lt;DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"&gt;&lt;item id="1" parentID="0" restricted="1"&gt;&lt;dc:title&gt;ExplApp Mirror&lt;/dc:title&gt;&lt;res protocolInfo="http-get:*:$mimeType:*"&gt;$escapedUrl&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+      <CurrentURIMetaData>$metadata</CurrentURIMetaData>
     </u:SetAVTransportURI>
   </s:Body>
 </s:Envelope>"""
