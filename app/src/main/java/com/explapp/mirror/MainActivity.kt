@@ -1,15 +1,18 @@
 package com.explapp.mirror
 
+import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.explapp.mirror.core.ConnectionTester
 import com.explapp.mirror.core.DeviceManager
+import com.explapp.mirror.core.MediaSender
 import com.explapp.mirror.core.NetworkScanner
 import com.explapp.mirror.model.CastDevice
 import kotlinx.coroutines.launch
@@ -17,13 +20,24 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
     private val deviceManager = DeviceManager()
     private val connectionTester = ConnectionTester()
+    private lateinit var mediaSender: MediaSender
     private lateinit var scanner: NetworkScanner
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
+    private var selectedDevice: CastDevice? = null
+
+    private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { handlePickedMedia(it) }
+    }
+
+    private val videoPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        uri?.let { handlePickedMedia(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         scanner = NetworkScanner(this)
+        mediaSender = MediaSender(this)
         setContentView(createMainView())
     }
 
@@ -43,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val subtitle = TextView(this).apply {
-            text = "اكتشاف الشاشات والأجهزة على نفس الشبكة"
+            text = "اكتشاف الشاشات وإرسال الصور والفيديوهات"
             textSize = 16f
             setTextColor(0xFFCBD5E1.toInt())
             gravity = Gravity.CENTER
@@ -113,8 +127,26 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { testDevice(device) }
             }
 
+            val imageButton = Button(this).apply {
+                text = "اختيار صورة"
+                setOnClickListener {
+                    selectedDevice = device
+                    imagePicker.launch("image/*")
+                }
+            }
+
+            val videoButton = Button(this).apply {
+                text = "اختيار فيديو"
+                setOnClickListener {
+                    selectedDevice = device
+                    videoPicker.launch("video/*")
+                }
+            }
+
             container.addView(item)
             container.addView(testButton)
+            container.addView(imageButton)
+            container.addView(videoButton)
 
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -128,6 +160,20 @@ class MainActivity : AppCompatActivity() {
         status.text = "جاري اختبار الاتصال مع ${device.ipAddress}..."
         lifecycleScope.launch {
             val result = connectionTester.test(device)
+            status.text = result.arabicSummary
+        }
+    }
+
+    private fun handlePickedMedia(uri: Uri) {
+        val device = selectedDevice
+        if (device == null) {
+            status.text = "اختر جهازًا أولًا قبل اختيار الملف."
+            return
+        }
+
+        status.text = "جاري تجهيز الملف للإرسال إلى ${device.ipAddress}..."
+        lifecycleScope.launch {
+            val result = mediaSender.prepareSend(device, uri)
             status.text = result.arabicSummary
         }
     }
