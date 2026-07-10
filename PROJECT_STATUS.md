@@ -2,7 +2,7 @@
 
 ## Current stage
 
-The project is now in the advanced DLNA debugging and device-compatibility stage. The app supports rich device discovery, device details, media queue playback, local media serving, HTTP Range support, DLNA playback commands, volume control, and now has an in-app diagnostics panel to determine why a TV accepts control commands but does not display media.
+The project is now a hybrid casting app: DLNA/UPnP for receivers and media-capable TVs, plus a Miracast / AnyView entry path for screens that rely on Android's wireless display feature.
 
 ## Completed
 
@@ -28,59 +28,43 @@ The project is now in the advanced DLNA debugging and device-compatibility stage
 - DLNA RenderingControl volume command.
 - Better DLNA metadata for images vs videos.
 - In-app diagnostics panel.
+- Miracast / AnyView launcher path.
+- Wi-Fi Direct launcher path.
+- Mirroring availability summary inside the UI.
 - APK build workflow.
 - APK artifact upload in GitHub Actions.
 - APK download placeholder page.
 
-## Latest debugging improvements
+## Latest hybrid mode improvements
 
-- `LocalMediaServer.kt`
-  - Records whether the TV actually requested the media file.
-  - Shows the last IP that requested the file.
-  - Shows the last HTTP method, path, Range header, status code and bytes sent.
-  - This tells us if the problem is DLNA command routing or media loading/display.
-
-- `MediaSender.kt`
-  - Stores the last send result.
-  - Exposes a combined Arabic diagnostics summary.
-  - Shows DLNA attempt status and HTTP code.
+- `MirroringLauncher.kt`
+  - Opens the best available Android mirroring screen.
+  - Tries Wi-Fi Display, Cast, Wireless Display, Settings WifiDisplay Activity, Wireless Settings, Wi-Fi Settings and Main Settings.
+  - Adds a separate Wi-Fi Direct path for screens that require pairing through Wi-Fi Direct.
+  - Shows an availability summary so the app tells the user what the phone exposes.
 
 - `MainActivity.kt`
-  - Added a visible diagnostics panel.
-  - Added a `تحديث التشخيص` button.
-  - Automatically refreshes diagnostics after sending media.
+  - Adds a third top-level button: `فتح Wi‑Fi Direct`.
+  - Shows a clear hybrid mode: DLNA for media, AnyView/Miracast for full screen mirroring.
+  - Keeps DLNA queue and playback controls separate from screen mirroring.
 
-- `DlnaController.kt`
-  - Improved `CurrentURIMetaData`.
-  - Sends image files as `object.item.imageItem.photo`.
-  - Sends video files as `object.item.videoItem`.
-  - Keeps correct MIME-specific `protocolInfo`.
+## Important Android limitation
 
-## How to interpret the next test
+Android generally does not allow a normal third-party app to start Miracast silently without user confirmation. The app can open the correct system page and guide the user to choose the display, but the final connection must usually be accepted through Android's system UI.
 
-After selecting an image/video and pressing `تحديث التشخيص`:
+## How to choose the path
 
-- If `عدد طلبات التلفاز/الأجهزة = 0`, the TV accepted control/volume but did not request the media URL. Then we tune DLNA SOAP / metadata / connection command.
-- If the request count is greater than 0 and bytes were sent, the TV reached the phone server. Then the issue is format/metadata/display compatibility.
-- If HTTP is 206, Range is working.
-- If HTTP is 200 and bytes were sent, simple full-file transfer is working.
-
-## Current limitation
-
-The app is now ready for a meaningful real-device test. Remaining work depends on the diagnostics result from the G-Guard screen or DLNA receiver:
-
-- Tune DLNA metadata if the TV requests the file but does not display it.
-- Tune SOAP command order if the TV does not request the file.
-- Add Chromecast SDK route later.
-- Screen mirroring remains a separate advanced phase because Miracast support is restricted on Android.
+- Use `بحث DLNA` for Ghazal receiver and any TV/receiver that appears as DLNA/UPnP.
+- Use `فتح مرآة الشاشة / AnyView` for G-Guard and screens that show AnyView Cast.
+- Use `فتح Wi‑Fi Direct` if the screen needs Wi-Fi Direct pairing before mirroring.
 
 ## Next step
 
-1. Build/install the updated APK.
-2. Pick the G-Guard/DLNA device.
-3. Select one simple JPG image first.
-4. Press `تحديث التشخيص` after the attempt.
-5. Use the diagnostic output to decide the exact next fix.
+1. Build and install the updated APK.
+2. Test Ghazal through DLNA with diagnostics.
+3. Test G-Guard through AnyView/Mirroring and Wi-Fi Direct buttons.
+4. If the phone opens the correct mirror page, use Android system UI to select G-Guard.
+5. If the phone does not expose mirroring settings, keep DLNA as the media path and note that Miracast may be disabled by the phone manufacturer.
 
 ## Approximate progress
 
@@ -88,7 +72,7 @@ The app is now ready for a meaningful real-device test. Remaining work depends o
 - Device discovery: 97%
 - Device details parsing: 90%
 - Connection testing: 90%
-- Device UI: 94%
+- Device UI: 95%
 - Media selection: 95%
 - Playback queue: 85%
 - Local media server: 92%
@@ -97,8 +81,10 @@ The app is now ready for a meaningful real-device test. Remaining work depends o
 - DLNA playback attempt: 76%
 - Playback control: 70%
 - Volume control: 65%
+- Miracast / AnyView entry path: 65%
+- Wi-Fi Direct entry path: 60%
 - APK workflow: 85%
 - Chromecast route: 15%
-- Screen mirroring: 0%
+- Direct silent screen mirroring: limited by Android system permissions
 
-Overall project progress: about 82%.
+Overall project progress: about 86%.
