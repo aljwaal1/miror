@@ -32,7 +32,7 @@ class MediaSender(private val context: Context) {
         val message = when (route) {
             MediaRoute.CHROMECAST -> {
                 if (localServerResult != null) {
-                    "تم تجهيز رابط محلي للملف. Chromecast يحتاج لاحقًا Google Cast SDK لإرسال هذا الرابط إلى الجهاز."
+                    "تم تجهيز رابط محلي للملف. Chromecast يحتاج Google Cast SDK لإرسال هذا الرابط."
                 } else {
                     "تم اختيار مسار Chromecast، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
@@ -41,7 +41,7 @@ class MediaSender(private val context: Context) {
                 when {
                     dlnaResult?.success == true -> dlnaResult.message
                     dlnaResult != null -> "تم تجهيز الرابط المحلي، لكن لم يكتمل تشغيل DLNA: ${dlnaResult.message}"
-                    localServerResult != null -> "تم تجهيز رابط محلي للملف. الخطوة التالية تحسين أوامر DLNA لهذا النوع من التلفاز."
+                    localServerResult != null -> "تم تجهيز رابط محلي للملف، لكن الجهاز لا يعلن عن رابط تحكم DLNA صالح."
                     else -> "تم اختيار مسار DLNA / UPnP، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
             }
@@ -49,20 +49,18 @@ class MediaSender(private val context: Context) {
                 when {
                     dlnaResult?.success == true -> dlnaResult.message
                     dlnaResult != null -> "تم تجهيز الرابط المحلي، لكن AnyView لم يقبل أمر DLNA: ${dlnaResult.message}"
-                    localServerResult != null -> "تم تجهيز رابط محلي للملف. إذا كان AnyView يعمل عبر DLNA يمكن تحسين أمر التشغيل لاحقًا."
+                    localServerResult != null -> "تم تجهيز رابط محلي للملف. جهاز AnyView يحتاج بروتوكولًا متوافقًا فعليًا للإرسال."
                     else -> "تم اختيار مسار AnyView، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
             }
             MediaRoute.BASIC_HTTP -> {
                 if (localServerResult != null) {
-                    "تم تجهيز رابط محلي للملف. يمكن استخدامه لاحقًا في أوامر التشغيل أو الاختبار اليدوي."
+                    "تم تجهيز رابط محلي للملف. لم يتم العثور على بروتوكول تشغيل مباشر لهذا الجهاز."
                 } else {
                     "الجهاز يملك مسار HTTP مبدئي، لكن لم يتم تجهيز الرابط المحلي للملف."
                 }
             }
-            MediaRoute.UNKNOWN -> {
-                "لم يتم تحديد بروتوكول مناسب لهذا الجهاز بعد. جرّب جهازًا يظهر كـ DLNA أو Chromecast."
-            }
+            MediaRoute.UNKNOWN -> "لم يتم تحديد بروتوكول مناسب لهذا الجهاز بعد."
         }
 
         MediaSendResult(
@@ -79,16 +77,14 @@ class MediaSender(private val context: Context) {
         )
     }
 
-    suspend fun pause(device: CastDevice): String {
-        return dlnaController.pause(device).message
-    }
+    suspend fun pause(device: CastDevice): String = dlnaController.pause(device).message
 
-    suspend fun resume(device: CastDevice): String {
-        return dlnaController.resume(device).message
-    }
+    suspend fun resume(device: CastDevice): String = dlnaController.resume(device).message
 
-    suspend fun stop(device: CastDevice): String {
-        return dlnaController.stop(device).message
+    suspend fun stop(device: CastDevice): String = dlnaController.stop(device).message
+
+    suspend fun setVolume(device: CastDevice, volume: Int): String {
+        return dlnaController.setVolume(device, volume).message
     }
 
     fun stopLocalServer() {
@@ -99,7 +95,7 @@ class MediaSender(private val context: Context) {
         val servicesText = device.services.joinToString(" ").lowercase()
         return when {
             device.type == DeviceType.CHROMECAST || "chromecast" in servicesText || "dial" in servicesText -> MediaRoute.CHROMECAST
-            device.type == DeviceType.DLNA || device.type == DeviceType.UPNP || "mediarenderer" in servicesText || "dlna" in servicesText -> MediaRoute.DLNA
+            device.type == DeviceType.DLNA || device.type == DeviceType.UPNP || device.supportsDlna || "mediarenderer" in servicesText || "dlna" in servicesText -> MediaRoute.DLNA
             device.type == DeviceType.ANYVIEW || "anyview" in servicesText || "hisense" in servicesText -> MediaRoute.ANYVIEW
             device.services.any { it.contains("80") || it.contains("8080") || it.contains("49152") } -> MediaRoute.BASIC_HTTP
             else -> MediaRoute.UNKNOWN
@@ -139,12 +135,8 @@ data class MediaSendResult(
             append("النوع: $mimeType\n")
             append("الجهاز: $deviceIp\n")
             append("المسار المختار: ${route.arabicName}\n")
-            if (!localUrl.isNullOrBlank()) {
-                append("الرابط المحلي: $localUrl\n")
-            }
-            if (dlnaAttempted) {
-                append("محاولة DLNA: ${if (dlnaSuccess) "نجحت" else "لم تكتمل"}\n")
-            }
+            if (!localUrl.isNullOrBlank()) append("الرابط المحلي: $localUrl\n")
+            if (dlnaAttempted) append("محاولة DLNA: ${if (dlnaSuccess) "نجحت" else "لم تكتمل"}\n")
             append(arabicMessage)
         }
 }
