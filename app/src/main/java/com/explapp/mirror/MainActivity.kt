@@ -14,6 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import com.explapp.mirror.core.ConnectionTester
 import com.explapp.mirror.core.DeviceManager
 import com.explapp.mirror.core.MediaSender
+import com.explapp.mirror.core.MirroringLauncher
 import com.explapp.mirror.core.NetworkScanner
 import com.explapp.mirror.model.CastDevice
 import kotlinx.coroutines.launch
@@ -22,6 +23,7 @@ class MainActivity : AppCompatActivity() {
     private val deviceManager = DeviceManager()
     private val connectionTester = ConnectionTester()
     private lateinit var mediaSender: MediaSender
+    private lateinit var mirroringLauncher: MirroringLauncher
     private lateinit var scanner: NetworkScanner
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
@@ -46,6 +48,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         scanner = NetworkScanner(this)
         mediaSender = MediaSender(this)
+        mirroringLauncher = MirroringLauncher(this)
         setContentView(createMainView())
     }
 
@@ -70,17 +73,37 @@ class MainActivity : AppCompatActivity() {
         })
 
         root.addView(TextView(this).apply {
-            text = "اكتشاف الشاشات وإرسال صور وفيديوهات متعددة"
+            text = "تطبيق مزيج: DLNA للصور والفيديو + AnyView / مرآة الشاشة"
             textSize = 16f
             setTextColor(0xFFCBD5E1.toInt())
             gravity = Gravity.CENTER
-            setPadding(0, 12, 0, 24)
+            setPadding(0, 12, 0, 20)
         })
 
-        root.addView(Button(this).apply {
-            text = "بحث عن الأجهزة"
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        modeRow.addView(Button(this).apply {
+            text = "1) بحث DLNA عن الرسيفرات والشاشات"
             setOnClickListener { startScan() }
         })
+        modeRow.addView(Button(this).apply {
+            text = "2) فتح مرآة الشاشة / AnyView"
+            setOnClickListener { openScreenMirroring() }
+        })
+        modeRow.addView(TextView(this).apply {
+            text = if (mirroringLauncher.isMirroringSettingsAvailable()) {
+                "الهاتف يوفر صفحة مشاركة شاشة يمكن فتحها من التطبيق."
+            } else {
+                "لم يتم العثور على صفحة مرآة مباشرة؛ سيحاول التطبيق فتح أقرب إعداد لاسلكي متاح."
+            }
+            textSize = 13f
+            setTextColor(0xFFFDE68A.toInt())
+            gravity = Gravity.CENTER
+            setPadding(8, 8, 8, 12)
+        })
+        root.addView(modeRow)
 
         selectedDeviceView = TextView(this).apply {
             text = "الجهاز المحدد: لا يوجد"
@@ -129,7 +152,7 @@ class MainActivity : AppCompatActivity() {
         volumeRow.addView(controlButton("+ الصوت") { changeVolume(5) })
 
         status = TextView(this).apply {
-            text = "الحالة: جاهز للبحث"
+            text = "الحالة: اختر طريقة الاتصال"
             textSize = 15f
             setTextColor(0xFF5EEAD4.toInt())
             gravity = Gravity.CENTER
@@ -168,8 +191,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun openScreenMirroring() {
+        val result = mirroringLauncher.openBestAvailable()
+        status.text = result.message
+    }
+
     private fun startScan() {
-        status.text = "جاري فحص الشبكة المحلية..."
+        status.text = "جاري فحص الشبكة المحلية لمسار DLNA..."
         list.removeAllViews()
         lifecycleScope.launch {
             val devices = scanner.scanLocalNetwork()
@@ -182,9 +210,9 @@ class MainActivity : AppCompatActivity() {
     private fun renderDevices(devices: List<CastDevice>) {
         list.removeAllViews()
         status.text = if (devices.isEmpty()) {
-            "لم يتم العثور على أجهزة. تأكد أن الهاتف والشاشة على نفس الشبكة."
+            "لم يتم العثور على أجهزة DLNA. لشاشة G-Guard استخدم زر مرآة الشاشة / AnyView."
         } else {
-            "تم العثور على ${devices.size} جهاز"
+            "تم العثور على ${devices.size} جهاز في مسار DLNA"
         }
 
         devices.forEach { device ->
@@ -243,7 +271,7 @@ class MainActivity : AppCompatActivity() {
             append("\nDLNA: ${if (device.supportsDlna) "مدعوم" else "غير مؤكد"}")
             append(" — الصوت: ${if (device.supportsVolumeControl) "مدعوم" else "غير متوفر"}")
         }
-        status.text = "تم اختيار ${device.name}"
+        status.text = "تم اختيار ${device.name} لمسار DLNA"
     }
 
     private fun testDevice(device: CastDevice) {
@@ -269,7 +297,7 @@ class MainActivity : AppCompatActivity() {
     private fun playCurrent() {
         val device = selectedDevice
         if (device == null) {
-            status.text = "اختر شاشة أولًا."
+            status.text = "اختر جهاز DLNA أولًا، أو استخدم مرآة الشاشة لعرض الهاتف كاملًا."
             return
         }
         if (queueIndex !in queue.indices) {
