@@ -3,9 +3,11 @@ package com.explapp.mirror
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -24,9 +26,11 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
     private val deviceManager = DeviceManager()
     private val connectionTester = ConnectionTester()
+
     private lateinit var mediaSender: MediaSender
     private lateinit var mirroringLauncher: MirroringLauncher
     private lateinit var scanner: NetworkScanner
+
     private lateinit var status: TextView
     private lateinit var list: LinearLayout
     private lateinit var queueView: TextView
@@ -34,6 +38,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var volumeView: TextView
     private lateinit var debugView: TextView
     private lateinit var mirroringInfoView: TextView
+    private lateinit var urlInput: EditText
+
     private var selectedDevice: CastDevice? = null
     private val queue = mutableListOf<Uri>()
     private var queueIndex = -1
@@ -66,7 +72,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         root.addView(textView("ExplApp Mirror", 28f, 0xFFF8FAFC.toInt(), Gravity.CENTER))
-        root.addView(textView("إرسال الوسائط عبر DLNA أو فتح مرآة الشاشة", 15f, 0xFFCBD5E1.toInt(), Gravity.CENTER).apply {
+        root.addView(textView("إرسال الوسائط والروابط عبر DLNA أو فتح مرآة الشاشة", 15f, 0xFFCBD5E1.toInt(), Gravity.CENTER).apply {
             setPadding(0, 10, 0, 20)
         })
 
@@ -88,7 +94,7 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(selectedDeviceView)
 
-        root.addView(sectionTitle("الوسائط"))
+        root.addView(sectionTitle("الوسائط المحلية"))
         root.addView(horizontalRow(
             controlButton("صور") { pickImages() },
             controlButton("فيديو") { pickVideos() },
@@ -99,6 +105,30 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 10, 0, 10)
         }
         root.addView(queueView)
+
+        root.addView(sectionTitle("رابط مباشر"))
+        urlInput = EditText(this).apply {
+            hint = "https://example.com/video.mp4"
+            setTextColor(0xFFF8FAFC.toInt())
+            setHintTextColor(0xFF64748B.toInt())
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            textDirection = View.TEXT_DIRECTION_LTR
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            setPadding(18, 12, 18, 12)
+            setBackgroundColor(0xFF172033.toInt())
+        }
+        root.addView(urlInput, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
+        root.addView(fullWidthButton("إرسال الرابط إلى الجهاز") { castDirectUrl() })
+        root.addView(textView(
+            "يدعم الروابط المباشرة للوسائط مثل MP4 وMP3 وM3U8. صفحات المواقع المحمية ليست روابط فيديو مباشرة.",
+            12f,
+            0xFF94A3B8.toInt(),
+            Gravity.CENTER
+        ).apply { setPadding(8, 6, 8, 10) })
 
         root.addView(sectionTitle("التحكم"))
         root.addView(horizontalRow(
@@ -147,7 +177,7 @@ class MainActivity : AppCompatActivity() {
             controlButton("تحديث التشخيص") { refreshDiagnostics() },
             controlButton("إعادة ضبط التوافق") { resetSelectedCompatibility() }
         ))
-        debugView = textView("لم يتم إرسال ملف بعد", 13f, 0xFFFDE68A.toInt()).apply {
+        debugView = textView("لم يتم إرسال ملف أو رابط بعد", 13f, 0xFFFDE68A.toInt()).apply {
             setPadding(16, 16, 16, 16)
             setBackgroundColor(0xFF1E293B.toInt())
         }
@@ -261,7 +291,7 @@ class MainActivity : AppCompatActivity() {
             append("\nDLNA: ${if (device.supportsDlna) "مدعوم" else "غير مؤكد"}")
             append(" — التحكم بالصوت: ${if (device.supportsVolumeControl) "مدعوم" else "غير متوفر"}")
         }
-        status.text = "تم اختيار ${device.name}. اختر صورة أو فيديو أو ملفًا صوتيًا."
+        status.text = "تم اختيار ${device.name}. اختر وسيطًا محليًا أو أدخل رابطًا مباشرًا."
         renderDevices(deviceManager.getDevices())
     }
 
@@ -282,6 +312,28 @@ class MainActivity : AppCompatActivity() {
             return
         }
         openPicker()
+    }
+
+    private fun castDirectUrl() {
+        val device = selectedDevice ?: run {
+            status.text = "اختر جهازًا أولًا."
+            return
+        }
+        val url = urlInput.text.toString().trim()
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            status.text = "أدخل رابطًا مباشرًا يبدأ بـ http:// أو https://"
+            return
+        }
+
+        status.text = "جاري إرسال الرابط إلى ${device.name}..."
+        lifecycleScope.launch {
+            status.text = runCatching {
+                mediaSender.prepareSendUrl(device, url).arabicSummary
+            }.getOrElse {
+                "تعذر إرسال الرابط: ${it.message.orEmpty()}"
+            }
+            refreshDiagnostics()
+        }
     }
 
     private fun showSelectedCompatibility() {
