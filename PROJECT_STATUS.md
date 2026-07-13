@@ -34,6 +34,9 @@ The project is now a hybrid casting app: DLNA/UPnP for receivers and media-capab
 - APK build workflow.
 - APK artifact upload in GitHub Actions.
 - APK download placeholder page.
+- Embedded web browser with address bar, home, back, forward and refresh controls.
+- Direct media discovery for MP4, M3U8, MP3, WebM, audio and image URLs.
+- One-tap handoff of a detected media URL to the existing DLNA casting engine.
 
 ## Latest hybrid mode improvements
 
