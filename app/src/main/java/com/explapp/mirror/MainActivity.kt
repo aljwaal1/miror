@@ -48,6 +48,13 @@ class MainActivity : AppCompatActivity() {
     private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addToQueue(it) }
     private val videoPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addToQueue(it) }
     private val audioPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { addToQueue(it) }
+    private val browserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        val mediaUrl = result.data?.getStringExtra(BrowserActivity.EXTRA_MEDIA_URL).orEmpty()
+        if (mediaUrl.isBlank()) return@registerForActivityResult
+        urlInput.setText(mediaUrl)
+        castDirectUrl()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -123,6 +130,13 @@ class MainActivity : AppCompatActivity() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         ))
         root.addView(fullWidthButton("إرسال الرابط إلى الجهاز") { castDirectUrl() })
+        root.addView(fullWidthButton("فتح المتصفح واكتشاف الوسائط") {
+            if (selectedDevice == null) {
+                status.text = "اختر جهازًا أولًا، ثم افتح المتصفح لاكتشاف الوسائط وإرسالها."
+            } else {
+                browserLauncher.launch(Intent(this, BrowserActivity::class.java))
+            }
+        })
         root.addView(textView(
             "يدعم الروابط المباشرة للوسائط مثل MP4 وMP3 وM3U8. صفحات المواقع المحمية ليست روابط فيديو مباشرة.",
             12f,
