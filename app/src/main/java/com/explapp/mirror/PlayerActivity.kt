@@ -1,0 +1,184 @@
+package com.explapp.mirror
+
+import android.os.Bundle
+import android.view.Gravity
+import android.view.View
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.explapp.mirror.core.MediaSender
+import com.explapp.mirror.session.CastSessionManager
+import com.explapp.mirror.session.PlaybackState
+import kotlinx.coroutines.launch
+
+class PlayerActivity : AppCompatActivity() {
+    private lateinit var mediaSender: MediaSender
+    private lateinit var stateView: TextView
+    private lateinit var volumeView: TextView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val device = CastSessionManager.device
+        if (device == null) {
+            finish()
+            return
+        }
+
+        mediaSender = MediaSender(this)
+        setContentView(buildView())
+        refreshState()
+    }
+
+    private fun buildView(): View {
+        val device = requireNotNull(CastSessionManager.device)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(30, 46, 30, 30)
+            setBackgroundColor(0xFF0F172A.toInt())
+        }
+
+        root.addView(label("شاشة التحكم بالبث", 26f, 0xFFF8FAFC.toInt(), Gravity.CENTER))
+        root.addView(label(device.name, 20f, 0xFF93C5FD.toInt(), Gravity.CENTER).apply {
+            setPadding(0, 18, 0, 6)
+        })
+        root.addView(label(device.ipAddress, 13f, 0xFF94A3B8.toInt(), Gravity.CENTER))
+        root.addView(label(
+            CastSessionManager.mediaTitle.ifBlank { "وسائط قيد التشغيل" },
+            18f,
+            0xFFF8FAFC.toInt(),
+            Gravity.CENTER
+        ).apply { setPadding(0, 28, 0, 18) })
+
+        stateView = label("", 15f, 0xFF5EEAD4.toInt(), Gravity.CENTER).apply {
+            setPadding(18, 16, 18, 16)
+            setBackgroundColor(0xFF172033.toInt())
+        }
+        root.addView(stateView, matchWrap())
+
+        root.addView(row(
+            button("تشغيل") { resume() },
+            button("إيقاف مؤقت") { pause() },
+            button("إيقاف") { stop() }
+        ))
+
+        val volumeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(0, 24, 0, 10)
+        }
+        volumeRow.addView(button("−") { changeVolume(-5) })
+        volumeView = label("", 16f, 0xFFF8FAFC.toInt(), Gravity.CENTER).apply {
+            setPadding(24, 0, 24, 0)
+        }
+        volumeRow.addView(volumeView)
+        volumeRow.addView(button("+") { changeVolume(5) })
+        root.addView(volumeRow)
+
+        root.addView(button("العودة إلى التطبيق") { finish() }.apply {
+            layoutParams = matchWrap()
+        })
+        return root
+    }
+
+    private fun pause() = runCommand(
+        pending = "جاري الإيقاف المؤقت...",
+        successState = PlaybackState.PAUSED
+    ) { mediaSender.pause(requireNotNull(CastSessionManager.device)) }
+
+    private fun resume() = runCommand(
+        pending = "جاري استئناف التشغيل...",
+        successState = PlaybackState.PLAYING
+    ) { mediaSender.resume(requireNotNull(CastSessionManager.device)) }
+
+    private fun stop() = runCommand(
+        pending = "جاري إيقاف البث...",
+        successState = PlaybackState.STOPPED
+    ) { mediaSender.stop(requireNotNull(CastSessionManager.device)) }
+
+    private fun runCommand(
+        pending: String,
+        successState: PlaybackState,
+        action: suspend () -> String
+    ) {
+        CastSessionManager.updateState(PlaybackState.CONNECTING, pending)
+        refreshState()
+        lifecycleScope.launch {
+            val message = runCatching { action() }
+                .getOrElse { "تعذر تنفيذ الأمر: ${it.message.orEmpty()}" }
+            val failed = message.contains("تعذر") || message.contains("فشل")
+            CastSessionManager.updateState(
+                if (failed) PlaybackState.ERROR else successState,
+                message
+            )
+            if (successState == PlaybackState.STOPPED && !failed) {
+                CastSessionManager.clearPlayback()
+            }
+            refreshState()
+        }
+    }
+
+    private fun changeVolume(delta: Int) {
+        val device = requireNotNull(CastSessionManager.device)
+        if (!device.supportsVolumeControl) {
+            CastSessionManager.updateState(PlaybackState.ERROR, "هذا الجهاز لا يدعم التحكم بالصوت عبر DLNA.")
+            refreshState()
+            return
+        }
+        val volume = (CastSessionManager.volume + delta).coerceIn(0, 100)
+        CastSessionManager.updateVolume(volume)
+        refreshState()
+        lifecycleScope.launch {
+            val message = mediaSender.setVolume(device, volume)
+            CastSessionManager.updateState(CastSessionManager.state, message)
+            refreshState()
+        }
+    }
+
+    private fun refreshState() {
+        val stateText = when (CastSessionManager.state) {
+            PlaybackState.IDLE -> "جاهز"
+            PlaybackState.CONNECTING -> "جارٍ تنفيذ الأمر"
+            PlaybackState.PLAYING -> "قيد التشغيل"
+            PlaybackState.PAUSED -> "متوقف مؤقتًا"
+            PlaybackState.STOPPED -> "تم إيقاف البث"
+            PlaybackState.ERROR -> "حدثت مشكلة"
+        }
+        stateView.text = buildString {
+            append("الحالة: $stateText")
+            if (CastSessionManager.lastMessage.isNotBlank()) {
+                append("\n${CastSessionManager.lastMessage}")
+            }
+        }
+        volumeView.text = "الصوت: ${CastSessionManager.volume}%"
+    }
+
+    private fun label(text: String, size: Float, color: Int, gravityValue: Int) = TextView(this).apply {
+        this.text = text
+        textSize = size
+        setTextColor(color)
+        gravity = gravityValue
+    }
+
+    private fun button(text: String, action: () -> Unit) = Button(this).apply {
+        this.text = text
+        isAllCaps = false
+        setOnClickListener { action() }
+    }
+
+    private fun row(vararg buttons: Button) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        layoutDirection = View.LAYOUT_DIRECTION_RTL
+        buttons.forEach { addView(it, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
+    }
+
+    private fun matchWrap() = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT,
+        LinearLayout.LayoutParams.WRAP_CONTENT
+    )
+}
