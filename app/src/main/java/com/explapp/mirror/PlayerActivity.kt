@@ -137,17 +137,23 @@ class PlayerActivity : AppCompatActivity() {
             refreshState()
             return
         }
-        val volume = (CastSessionManager.volume + delta).coerceIn(0, 100)
-        CastSessionManager.updateVolume(volume)
+
+        val previousVolume = CastSessionManager.volume
+        val requestedVolume = (previousVolume + delta).coerceIn(0, 100)
+        if (requestedVolume == previousVolume) return
+
+        CastSessionManager.updateVolume(requestedVolume)
         refreshState()
         lifecycleScope.launch {
-            val message = runCatching { mediaSender.setVolume(device, volume) }
+            val message = runCatching { mediaSender.setVolume(device, requestedVolume) }
                 .getOrElse { "تعذر تغيير مستوى الصوت: ${it.message.orEmpty()}" }
             val failed = message.contains("تعذر") || message.contains("فشل")
-            CastSessionManager.updateState(
-                if (failed) PlaybackState.ERROR else CastSessionManager.state,
-                message
-            )
+            if (failed) {
+                CastSessionManager.updateVolume(previousVolume)
+                CastSessionManager.updateState(PlaybackState.ERROR, message)
+            } else {
+                CastSessionManager.updateState(CastSessionManager.state, message)
+            }
             refreshState()
         }
     }
