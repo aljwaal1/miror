@@ -31,6 +31,11 @@ class PlayerActivity : AppCompatActivity() {
         refreshState()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::stateView.isInitialized) refreshState()
+    }
+
     private fun buildView(): View {
         val device = requireNotNull(CastSessionManager.device)
         val root = LinearLayout(this).apply {
@@ -60,9 +65,9 @@ class PlayerActivity : AppCompatActivity() {
         root.addView(stateView, matchWrap())
 
         root.addView(row(
-            button("تشغيل") { resume() },
-            button("إيقاف مؤقت") { pause() },
-            button("إيقاف") { stop() }
+            button("تشغيل") { resumePlayback() },
+            button("إيقاف مؤقت") { pausePlayback() },
+            button("إيقاف") { stopPlayback() }
         ))
 
         val volumeRow = LinearLayout(this).apply {
@@ -85,24 +90,26 @@ class PlayerActivity : AppCompatActivity() {
         return root
     }
 
-    private fun pause() = runCommand(
+    private fun pausePlayback() = runCommand(
         pending = "جاري الإيقاف المؤقت...",
         successState = PlaybackState.PAUSED
     ) { mediaSender.pause(requireNotNull(CastSessionManager.device)) }
 
-    private fun resume() = runCommand(
+    private fun resumePlayback() = runCommand(
         pending = "جاري استئناف التشغيل...",
         successState = PlaybackState.PLAYING
     ) { mediaSender.resume(requireNotNull(CastSessionManager.device)) }
 
-    private fun stop() = runCommand(
+    private fun stopPlayback() = runCommand(
         pending = "جاري إيقاف البث...",
-        successState = PlaybackState.STOPPED
+        successState = PlaybackState.STOPPED,
+        finishOnSuccess = true
     ) { mediaSender.stop(requireNotNull(CastSessionManager.device)) }
 
     private fun runCommand(
         pending: String,
         successState: PlaybackState,
+        finishOnSuccess: Boolean = false,
         action: suspend () -> String
     ) {
         CastSessionManager.updateState(PlaybackState.CONNECTING, pending)
@@ -119,6 +126,7 @@ class PlayerActivity : AppCompatActivity() {
                 CastSessionManager.clearPlayback()
             }
             refreshState()
+            if (finishOnSuccess && !failed) finish()
         }
     }
 
@@ -133,8 +141,13 @@ class PlayerActivity : AppCompatActivity() {
         CastSessionManager.updateVolume(volume)
         refreshState()
         lifecycleScope.launch {
-            val message = mediaSender.setVolume(device, volume)
-            CastSessionManager.updateState(CastSessionManager.state, message)
+            val message = runCatching { mediaSender.setVolume(device, volume) }
+                .getOrElse { "تعذر تغيير مستوى الصوت: ${it.message.orEmpty()}" }
+            val failed = message.contains("تعذر") || message.contains("فشل")
+            CastSessionManager.updateState(
+                if (failed) PlaybackState.ERROR else CastSessionManager.state,
+                message
+            )
             refreshState()
         }
     }
