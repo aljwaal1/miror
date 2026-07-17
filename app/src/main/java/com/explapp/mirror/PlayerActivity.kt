@@ -17,6 +17,8 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var mediaSender: MediaSender
     private lateinit var stateView: TextView
     private lateinit var volumeView: TextView
+    private val commandButtons = mutableListOf<Button>()
+    private var commandInFlight = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,9 +67,9 @@ class PlayerActivity : AppCompatActivity() {
         root.addView(stateView, matchWrap())
 
         root.addView(row(
-            button("تشغيل") { resumePlayback() },
-            button("إيقاف مؤقت") { pausePlayback() },
-            button("إيقاف") { stopPlayback() }
+            commandButton("تشغيل") { resumePlayback() },
+            commandButton("إيقاف مؤقت") { pausePlayback() },
+            commandButton("إيقاف") { stopPlayback() }
         ))
 
         val volumeRow = LinearLayout(this).apply {
@@ -76,12 +78,12 @@ class PlayerActivity : AppCompatActivity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             setPadding(0, 24, 0, 10)
         }
-        volumeRow.addView(button("−") { changeVolume(-5) })
+        volumeRow.addView(commandButton("−") { changeVolume(-5) })
         volumeView = label("", 16f, 0xFFF8FAFC.toInt(), Gravity.CENTER).apply {
             setPadding(24, 0, 24, 0)
         }
         volumeRow.addView(volumeView)
-        volumeRow.addView(button("+") { changeVolume(5) })
+        volumeRow.addView(commandButton("+") { changeVolume(5) })
         root.addView(volumeRow)
 
         root.addView(button("العودة إلى التطبيق") { finish() }.apply {
@@ -112,21 +114,26 @@ class PlayerActivity : AppCompatActivity() {
         finishOnSuccess: Boolean = false,
         action: suspend () -> String
     ) {
+        if (!beginCommand()) return
         CastSessionManager.updateState(PlaybackState.CONNECTING, pending)
         refreshState()
         lifecycleScope.launch {
-            val message = runCatching { action() }
-                .getOrElse { "تعذر تنفيذ الأمر: ${it.message.orEmpty()}" }
-            val failed = message.contains("تعذر") || message.contains("فشل")
-            CastSessionManager.updateState(
-                if (failed) PlaybackState.ERROR else successState,
-                message
-            )
-            if (successState == PlaybackState.STOPPED && !failed) {
-                CastSessionManager.clearPlayback()
+            try {
+                val message = runCatching { action() }
+                    .getOrElse { "تعذر تنفيذ الأمر: ${it.message.orEmpty()}" }
+                val failed = isFailureMessage(message)
+                CastSessionManager.updateState(
+                    if (failed) PlaybackState.ERROR else successState,
+                    message
+                )
+                if (successState == PlaybackState.STOPPED && !failed) {
+                    CastSessionManager.clearPlayback()
+                }
+                refreshState()
+                if (finishOnSuccess && !failed) finish()
+            } finally {
+                endCommand()
             }
-            refreshState()
-            if (finishOnSuccess && !failed) finish()
         }
     }
 
@@ -140,23 +147,44 @@ class PlayerActivity : AppCompatActivity() {
 
         val previousVolume = CastSessionManager.volume
         val requestedVolume = (previousVolume + delta).coerceIn(0, 100)
-        if (requestedVolume == previousVolume) return
+        if (requestedVolume == previousVolume || !beginCommand()) return
 
+        val playbackStateBeforeCommand = CastSessionManager.state
         CastSessionManager.updateVolume(requestedVolume)
+        CastSessionManager.updateState(PlaybackState.CONNECTING, "جاري تغيير مستوى الصوت...")
         refreshState()
         lifecycleScope.launch {
-            val message = runCatching { mediaSender.setVolume(device, requestedVolume) }
-                .getOrElse { "تعذر تغيير مستوى الصوت: ${it.message.orEmpty()}" }
-            val failed = message.contains("تعذر") || message.contains("فشل")
-            if (failed) {
-                CastSessionManager.updateVolume(previousVolume)
-                CastSessionManager.updateState(PlaybackState.ERROR, message)
-            } else {
-                CastSessionManager.updateState(CastSessionManager.state, message)
+            try {
+                val message = runCatching { mediaSender.setVolume(device, requestedVolume) }
+                    .getOrElse { "تعذر تغيير مستوى الصوت: ${it.message.orEmpty()}" }
+                val failed = isFailureMessage(message)
+                if (failed) {
+                    CastSessionManager.updateVolume(previousVolume)
+                    CastSessionManager.updateState(PlaybackState.ERROR, message)
+                } else {
+                    CastSessionManager.updateState(playbackStateBeforeCommand, message)
+                }
+                refreshState()
+            } finally {
+                endCommand()
             }
-            refreshState()
         }
     }
+
+    private fun beginCommand(): Boolean {
+        if (commandInFlight) return false
+        commandInFlight = true
+        commandButtons.forEach { it.isEnabled = false }
+        return true
+    }
+
+    private fun endCommand() {
+        commandInFlight = false
+        commandButtons.forEach { it.isEnabled = true }
+    }
+
+    private fun isFailureMessage(message: String): Boolean =
+        message.contains("تعذر") || message.contains("فشل")
 
     private fun refreshState() {
         val stateText = when (CastSessionManager.state) {
@@ -187,6 +215,10 @@ class PlayerActivity : AppCompatActivity() {
         this.text = text
         isAllCaps = false
         setOnClickListener { action() }
+    }
+
+    private fun commandButton(text: String, action: () -> Unit) = button(text, action).also {
+        commandButtons += it
     }
 
     private fun row(vararg buttons: Button) = LinearLayout(this).apply {
