@@ -39,6 +39,9 @@ jobs:
       - name: Validate project
         run: gradle --no-daemon projects
 
+      - name: Run unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
+
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
 
