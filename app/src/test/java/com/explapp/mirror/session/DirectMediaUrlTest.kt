@@ -22,6 +22,14 @@ class DirectMediaUrlTest {
     }
 
     @Test
+    fun acceptsValidCustomPort() {
+        assertEquals(
+            "http://192.168.1.20:8080/video.mp4",
+            DirectMediaUrl.normalize("http://192.168.1.20:8080/video.mp4")
+        )
+    }
+
+    @Test
     fun rejectsMissingHost() {
         assertThrows(IllegalArgumentException::class.java) {
             DirectMediaUrl.normalize("https://")
@@ -39,6 +47,27 @@ class DirectMediaUrlTest {
     fun rejectsPlainText() {
         assertThrows(IllegalArgumentException::class.java) {
             DirectMediaUrl.normalize("example.com/video.mp4")
+        }
+    }
+
+    @Test
+    fun rejectsEmbeddedUserInfo() {
+        assertThrows(IllegalArgumentException::class.java) {
+            DirectMediaUrl.normalize("https://viewer@example.com/video.mp4")
+        }
+    }
+
+    @Test
+    fun rejectsOutOfRangePort() {
+        assertThrows(IllegalArgumentException::class.java) {
+            DirectMediaUrl.normalize("https://example.com:70000/video.mp4")
+        }
+    }
+
+    @Test
+    fun rejectsZeroPort() {
+        assertThrows(IllegalArgumentException::class.java) {
+            DirectMediaUrl.normalize("https://example.com:0/video.mp4")
         }
     }
 }
