@@ -29,10 +29,7 @@ class SessionCastCoordinator(
         url: String,
         title: String = titleFromUrl(url)
     ): MediaSendResult {
-        val normalizedUrl = url.trim()
-        require(normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")) {
-            "الرابط يجب أن يبدأ بـ http:// أو https://"
-        }
+        val normalizedUrl = DirectMediaUrl.normalize(url)
         prepareSession(device, title, normalizedUrl)
         return runRequest { mediaSender.prepareSendUrl(device, normalizedUrl) }
     }
