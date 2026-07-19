@@ -24,6 +24,7 @@ object CastSessionManager {
         device = value
         if (state == PlaybackState.ERROR || state == PlaybackState.STOPPED) {
             state = PlaybackState.IDLE
+            lastMessage = ""
         }
     }
 
@@ -43,10 +44,11 @@ object CastSessionManager {
         volume = value.coerceIn(0, 100)
     }
 
-    fun clearPlayback() {
+    fun clearPlayback(message: String = "تم إيقاف البث") {
         mediaTitle = ""
         mediaSource = ""
         state = PlaybackState.STOPPED
+        lastMessage = message
     }
 
     fun clearAll() {
