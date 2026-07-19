@@ -34,6 +34,16 @@ class CastSessionManagerTest {
     }
 
     @Test
+    fun selectingDeviceAfterErrorClearsStaleStatus() {
+        CastSessionManager.updateState(PlaybackState.ERROR, "فشل الاتصال")
+
+        CastSessionManager.selectDevice(device)
+
+        assertEquals(PlaybackState.IDLE, CastSessionManager.state)
+        assertEquals("", CastSessionManager.lastMessage)
+    }
+
+    @Test
     fun beginCreatesConnectingPlaybackSession() {
         CastSessionManager.selectDevice(device)
         CastSessionManager.begin("Demo video", "https://example.com/video.mp4")
@@ -65,6 +75,18 @@ class CastSessionManagerTest {
         assertEquals("", CastSessionManager.mediaTitle)
         assertEquals("", CastSessionManager.mediaSource)
         assertEquals(PlaybackState.STOPPED, CastSessionManager.state)
+        assertEquals("تم إيقاف البث", CastSessionManager.lastMessage)
+    }
+
+    @Test
+    fun clearPlaybackCanStoreConfirmedDeviceMessage() {
+        CastSessionManager.selectDevice(device)
+        CastSessionManager.begin("Demo", "local://demo")
+
+        CastSessionManager.clearPlayback("تم الإيقاف بواسطة التلفاز")
+
+        assertEquals(PlaybackState.STOPPED, CastSessionManager.state)
+        assertEquals("تم الإيقاف بواسطة التلفاز", CastSessionManager.lastMessage)
     }
 
     @Test
