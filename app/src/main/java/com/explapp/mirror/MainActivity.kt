@@ -17,10 +17,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.explapp.mirror.core.ConnectionTester
 import com.explapp.mirror.core.DeviceManager
+import com.explapp.mirror.core.MediaSendResult
 import com.explapp.mirror.core.MediaSender
 import com.explapp.mirror.core.MirroringLauncher
 import com.explapp.mirror.core.NetworkScanner
 import com.explapp.mirror.model.CastDevice
+import com.explapp.mirror.session.CastSessionManager
+import com.explapp.mirror.session.SessionCastCoordinator
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -28,6 +31,7 @@ class MainActivity : AppCompatActivity() {
     private val connectionTester = ConnectionTester()
 
     private lateinit var mediaSender: MediaSender
+    private lateinit var castCoordinator: SessionCastCoordinator
     private lateinit var mirroringLauncher: MirroringLauncher
     private lateinit var scanner: NetworkScanner
 
@@ -60,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         scanner = NetworkScanner(this)
         mediaSender = MediaSender(this)
+        castCoordinator = SessionCastCoordinator(mediaSender)
         mirroringLauncher = MirroringLauncher(this)
         setContentView(createMainView())
     }
@@ -298,6 +303,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectDevice(device: CastDevice) {
         selectedDevice = device
+        CastSessionManager.selectDevice(device)
+        currentVolume = CastSessionManager.volume
+        volumeView.text = "الصوت: $currentVolume%"
         selectedDeviceView.text = buildString {
             append("الجهاز المحدد: ${device.name} (${device.ipAddress})")
             if (device.manufacturer.isNotBlank()) append("\nالشركة: ${device.manufacturer}")
@@ -315,9 +323,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pickImages() = pickForSelectedDevice { imagePicker.launch(arrayOf("image/*")) }
-
     private fun pickVideos() = pickForSelectedDevice { videoPicker.launch(arrayOf("video/*")) }
-
     private fun pickAudio() = pickForSelectedDevice { audioPicker.launch(arrayOf("audio/*")) }
 
     private fun pickForSelectedDevice(openPicker: () -> Unit) {
@@ -341,12 +347,13 @@ class MainActivity : AppCompatActivity() {
 
         status.text = "جاري إرسال الرابط إلى ${device.name}..."
         lifecycleScope.launch {
-            status.text = runCatching {
-                mediaSender.prepareSendUrl(device, url).arabicSummary
-            }.getOrElse {
-                "تعذر إرسال الرابط: ${it.message.orEmpty()}"
-            }
-            refreshDiagnostics()
+            val result = runCatching { castCoordinator.castUrl(device, url) }
+                .getOrElse {
+                    status.text = "تعذر إرسال الرابط: ${it.message.orEmpty()}"
+                    refreshDiagnostics()
+                    return@launch
+                }
+            handleCastResult(result)
         }
     }
 
@@ -411,11 +418,25 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val uri = queue[queueIndex]
+        val title = uri.lastPathSegment.orEmpty().ifBlank { "الملف ${queueIndex + 1}" }
         status.text = "جاري إرسال الملف ${queueIndex + 1} من ${queue.size} إلى ${device.name}..."
         lifecycleScope.launch {
-            status.text = mediaSender.prepareSend(device, uri).arabicSummary
+            val result = runCatching { castCoordinator.castLocal(device, uri, title) }
+                .getOrElse {
+                    status.text = "تعذر إرسال الملف: ${it.message.orEmpty()}"
+                    refreshDiagnostics()
+                    return@launch
+                }
             updateQueueStatus()
-            refreshDiagnostics()
+            handleCastResult(result)
+        }
+    }
+
+    private fun handleCastResult(result: MediaSendResult) {
+        status.text = result.arabicSummary
+        refreshDiagnostics()
+        if (result.dlnaSuccess && result.isReadyForNextStep) {
+            startActivity(Intent(this, PlayerActivity::class.java))
         }
     }
 
@@ -449,6 +470,7 @@ class MainActivity : AppCompatActivity() {
             return@withSelectedDevice
         }
         currentVolume = (currentVolume + delta).coerceIn(0, 100)
+        CastSessionManager.updateVolume(currentVolume)
         volumeView.text = "الصوت: $currentVolume%"
         lifecycleScope.launch { status.text = mediaSender.setVolume(device, currentVolume) }
     }
@@ -465,6 +487,7 @@ class MainActivity : AppCompatActivity() {
         queue.clear()
         queueIndex = -1
         mediaSender.stopLocalServer()
+        CastSessionManager.clearPlayback()
         updateQueueStatus()
         refreshDiagnostics()
         status.text = "تم مسح قائمة التشغيل."
